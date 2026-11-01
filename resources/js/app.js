@@ -2,8 +2,10 @@ import './bootstrap';
 
 import Alpine from 'alpinejs';
 import collapse from '@alpinejs/collapse';
+import { registerRosterMatrix } from './roster';
 
 Alpine.plugin(collapse);
+registerRosterMatrix(Alpine);
 
 const resolveThemeDark = (mode) =>
     mode === 'dark' || (mode !== 'light' && window.matchMedia('(prefers-color-scheme: dark)').matches);

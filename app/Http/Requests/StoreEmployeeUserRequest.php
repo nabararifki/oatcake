@@ -57,15 +57,20 @@ class StoreEmployeeUserRequest extends FormRequest
      *
      * @return list<string>
      */
-    public static function allowedRolesFor(User $user): array
+    public static function allowedRolesFor(User $currentUser): array
     {
-        return match ($user->role) {
-            'manager' => ['user'],
-            'admin' => ['user', 'manager'],
-            'super_user' => ['user', 'manager', 'admin'],
-            'super_admin' => ['user', 'manager', 'admin', 'super_user'],
-            default => [],
-        };
+        if (! in_array($currentUser->role, ['manager', 'admin', 'super_user', 'super_admin'], true)) {
+            return [];
+        }
+
+        $allowedRoles = ['user', 'manager'];
+        if ($currentUser->isSuperAdmin() || $currentUser->isSuperUser()) {
+            $allowedRoles = array_merge($allowedRoles, ['admin', 'super_user']);
+        } elseif ($currentUser->isAdmin()) {
+            $allowedRoles[] = 'admin';
+        }
+
+        return $allowedRoles;
     }
 
     /**

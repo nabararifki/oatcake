@@ -6,7 +6,7 @@
                     {{ __('staff.title_onboarding') }}
                 </h2>
                 <p class="text-xs text-ink-muted mt-1">
-                    {{ $actor->company?->name ?? 'Global Tenant' }} &mdash; {{ __('staff.subtitle_onboarding') }}
+                    {{ $actor->company?->name ?? __('common.global_root_all_tenants') }} &mdash; {{ __('staff.subtitle_onboarding') }}
                 </p>
             </div>
             <a href="{{ route('staff.index') }}"
@@ -222,6 +222,12 @@
                     @else
                         <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
                             @foreach ($tags as $tag)
+                                @php
+                                    $tagDescKey = 'roster.tag_desc_' . strtolower($tag->code);
+                                    $tagLabelKey = 'roster.tag_' . strtolower($tag->code);
+                                    $resolvedTagDesc = __($tagDescKey) !== $tagDescKey ? __($tagDescKey) : $tag->name;
+                                    $resolvedTagLabel = __($tagLabelKey) !== $tagLabelKey ? __($tagLabelKey) : $tag->code;
+                                @endphp
                                 <label class="rounded-lg border border-line p-2.5 flex items-center gap-2 hover:bg-surface-muted cursor-pointer transition-colors">
                                     <input type="checkbox"
                                            name="tags[]"
@@ -230,10 +236,10 @@
                                            @checked(in_array($tag->id, old('tags', []))) />
                                     <div class="flex flex-col">
                                         <div class="flex items-center gap-2">
-                                             <span class="inline-block w-2.5 h-2.5 rounded-full" style="background-color: {{ $tag->badge_color }};"></span>
-                                            <span class="text-sm font-semibold text-ink">{{ $tag->code }}</span>
+                                            <span class="inline-block w-2.5 h-2.5 rounded-full" style="background-color: {{ $tag->badge_color }};"></span>
+                                            <span class="text-sm font-semibold text-ink">{{ $resolvedTagLabel }}</span>
                                         </div>
-                                        <span class="text-xs text-ink-muted">{{ $tag->name }}</span>
+                                        <span class="text-xs text-ink-muted">{{ $resolvedTagDesc }}</span>
                                     </div>
                                 </label>
                             @endforeach

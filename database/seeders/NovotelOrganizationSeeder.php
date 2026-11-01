@@ -106,6 +106,11 @@ class NovotelOrganizationSeeder extends Seeder
                 'name' => 'Regu Tanggap Kebakaran',
                 'badge_color' => '#EF4444',
             ],
+            [
+                'code' => 'VIEW_ALL_SCHEDULES',
+                'name' => 'Akses Lihat Jadwal Lintas Departemen',
+                'badge_color' => '#0284C7',
+            ],
         ];
 
         foreach ($tags as $tag) {

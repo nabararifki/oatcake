@@ -262,4 +262,264 @@ class StaffProvisioningTest extends TestCase
             'email' => 'budi.santoso@gmail.com',
         ]);
     }
+
+    /**
+     * Uji 6: Edit Data Staf (GET /staff/{employee}/edit & PUT /staff/{employee}) berhasil memperbarui jabatan,
+     * departemen, nomor telepon, dan sinkronisasi tag staf tanpa error validasi unik email/username dirinya sendiri.
+     */
+    public function test_edit_staff_updates_employee_and_user_profile_and_syncs_tags_without_self_unique_conflict(): void
+    {
+        $fixture = $this->createTenantFixture();
+
+        $adminUser = User::create([
+            'company_id' => $fixture['company']->id,
+            'name' => 'HR Admin Novotel',
+            'username' => 'hr_admin_novotel',
+            'email' => 'hr.admin@novotel-yia.com',
+            'password' => Hash::make('Password123!'),
+            'role' => 'admin',
+            'is_active' => true,
+        ]);
+
+        $targetUser = User::create([
+            'company_id' => $fixture['company']->id,
+            'name' => 'Andi Saputra',
+            'username' => 'andi_saputra',
+            'email' => 'andi.saputra@gmail.com',
+            'password' => Hash::make('Password123!'),
+            'role' => 'user',
+            'is_active' => true,
+        ]);
+
+        $targetEmployee = Employee::withoutGlobalScopes()->create([
+            'company_id' => $fixture['company']->id,
+            'user_id' => $targetUser->id,
+            'department_id' => $fixture['foDept']->id,
+            'manager_id' => $fixture['managerEmployee']->id,
+            'position' => 'Bellboy',
+            'join_date' => '2025-05-01',
+            'phone' => '+628111111111',
+            'status' => 'active',
+        ]);
+        $targetEmployee->tags()->sync([$fixture['tagFirstAider']->id]);
+
+        // 6a. GET /staff/{employee}/edit memuat halaman edit staf
+        $editPageResponse = $this->actingAs($adminUser)
+            ->get(route('staff.edit', $targetEmployee));
+
+        $editPageResponse->assertOk()
+            ->assertSee('Andi Saputra')
+            ->assertSee('andi_saputra')
+            ->assertDontSee('name="nik"', escape: false);
+
+        // 6b. PUT /staff/{employee} dengan username & email yang sama (dirinya sendiri) serta perubahan jabatan, departemen, telp, dan tag
+        $updateResponse = $this->actingAs($adminUser)
+            ->put(route('staff.update', $targetEmployee), [
+                'name' => 'Andi Saputra Senior',
+                'username' => 'andi_saputra', // Sama dengan miliknya sendiri -> harus lolos Rule::unique()->ignore()
+                'email' => 'andi.saputra@gmail.com', // Sama dengan miliknya sendiri -> harus lolos Rule::unique()->ignore()
+                'department_id' => $fixture['hkDept']->id,
+                'position' => 'Housekeeping Team Leader',
+                'join_date' => '2025-05-01',
+                'phone' => '+628199999999',
+                'role' => 'manager',
+                'status' => 'active',
+                'manager_id' => $fixture['managerEmployee']->id,
+                'tags' => [$fixture['tagMod']->id],
+                'password' => '',
+            ]);
+
+        $updateResponse->assertStatus(302)
+            ->assertRedirect(route('staff.index'))
+            ->assertSessionHas('success');
+
+        $this->assertDatabaseHas('users', [
+            'id' => $targetUser->id,
+            'name' => 'Andi Saputra Senior',
+            'username' => 'andi_saputra',
+            'email' => 'andi.saputra@gmail.com',
+            'role' => 'manager',
+        ]);
+
+        $this->assertDatabaseHas('employees', [
+            'id' => $targetEmployee->id,
+            'department_id' => $fixture['hkDept']->id,
+            'position' => 'Housekeeping Team Leader',
+            'phone' => '+628199999999',
+            'status' => 'active',
+        ]);
+
+        $this->assertDatabaseHas('employee_tags', [
+            'employee_id' => $targetEmployee->id,
+            'tag_id' => $fixture['tagMod']->id,
+        ]);
+
+        $this->assertDatabaseMissing('employee_tags', [
+            'employee_id' => $targetEmployee->id,
+            'tag_id' => $fixture['tagFirstAider']->id,
+        ]);
+    }
+
+    /**
+     * Uji 7: Provisioning Multi-SuperUser Selevel — pengguna dengan role super_user berhasil mendaftarkan
+     * pengguna baru dengan role super_user di perusahaan yang sama melalui POST /staff.
+     */
+    public function test_super_user_can_provision_peer_super_user_and_multiple_roles_in_same_company(): void
+    {
+        $fixture = $this->createTenantFixture();
+
+        $execDept = Department::withoutGlobalScopes()->create([
+            'company_id' => $fixture['company']->id,
+            'code' => 'EXEC',
+            'name' => 'Executive Office',
+            'is_operational' => false,
+            'min_staff_per_shift' => 1,
+            'is_executive_oversight' => true,
+        ]);
+
+        $gmSuperUser = User::create([
+            'company_id' => $fixture['company']->id,
+            'name' => 'General Manager Novotel',
+            'username' => 'gm_novotel',
+            'email' => 'gm@novotel-yia.com',
+            'password' => Hash::make('Password123!'),
+            'role' => 'super_user',
+            'is_active' => true,
+        ]);
+
+        $gmEmployee = Employee::withoutGlobalScopes()->create([
+            'company_id' => $fixture['company']->id,
+            'user_id' => $gmSuperUser->id,
+            'department_id' => $execDept->id,
+            'position' => 'General Manager',
+            'join_date' => '2024-01-01',
+            'status' => 'active',
+        ]);
+
+        // GM (super_user) mendaftarkan Hotel Manager / EAM dengan role super_user baru di perusahaan yang sama
+        $response = $this->actingAs($gmSuperUser)
+            ->post('/staff', [
+                'name' => 'Executive Assistant Manager',
+                'username' => 'eam_novotel',
+                'email' => 'eam.novotel@gmail.com',
+                'department_id' => $execDept->id,
+                'position' => 'Executive Assistant Manager',
+                'join_date' => '2026-01-15',
+                'phone' => '+6281122339988',
+                'role' => 'super_user',
+                'manager_id' => $gmEmployee->id,
+                'tags' => [$fixture['tagMod']->id],
+                'password' => 'SecurePass123!',
+            ]);
+
+        $response->assertStatus(302)
+            ->assertRedirect(route('staff.index'))
+            ->assertSessionHas('success');
+
+        $this->assertDatabaseHas('users', [
+            'company_id' => $fixture['company']->id,
+            'username' => 'eam_novotel',
+            'email' => 'eam.novotel@gmail.com',
+            'role' => 'super_user',
+            'is_active' => true,
+        ]);
+
+        // Pastikan kini terdapat >= 2 super_user aktif dalam perusahaan yang sama
+        $superUserCount = User::where('company_id', $fixture['company']->id)
+            ->where('role', 'super_user')
+            ->count();
+        $this->assertSame(2, $superUserCount);
+    }
+
+    /**
+     * Uji 8: Manager berhasil menghapus staf di departemennya sendiri (DELETE /staff/{employee} -> 302),
+     * membersihkan relasi employee_tags, menghapus rekod Employee, dan menghapus rekod User terkait.
+     */
+    public function test_manager_can_delete_staff_in_own_department(): void
+    {
+        $fixture = $this->createTenantFixture();
+
+        $staffUser = User::create([
+            'company_id' => $fixture['company']->id,
+            'name' => 'Staf FO Dihapus',
+            'username' => 'staf_fo_hapus',
+            'email' => 'staf.fo.hapus@novotel-yia.com',
+            'password' => Hash::make('Password123!'),
+            'role' => 'user',
+            'is_active' => true,
+        ]);
+
+        $staffEmployee = Employee::withoutGlobalScopes()->create([
+            'company_id' => $fixture['company']->id,
+            'user_id' => $staffUser->id,
+            'department_id' => $fixture['foDept']->id,
+            'manager_id' => $fixture['managerEmployee']->id,
+            'position' => 'Guest Service Agent',
+            'join_date' => '2025-06-01',
+            'status' => 'active',
+        ]);
+        $staffEmployee->tags()->sync([$fixture['tagFirstAider']->id]);
+
+        $response = $this->actingAs($fixture['managerUser'])
+            ->delete(route('staff.destroy', $staffEmployee));
+
+        $response->assertStatus(302)
+            ->assertRedirect(route('staff.index'))
+            ->assertSessionHas('success');
+
+        $this->assertDatabaseMissing('employees', ['id' => $staffEmployee->id]);
+        $this->assertDatabaseMissing('users', ['id' => $staffUser->id]);
+        $this->assertDatabaseMissing('employee_tags', ['employee_id' => $staffEmployee->id]);
+    }
+
+    /**
+     * Uji 9: Manager ditolak (403 Forbidden) saat mencoba menghapus staf lintas departemen.
+     */
+    public function test_manager_cannot_delete_staff_in_other_department(): void
+    {
+        $fixture = $this->createTenantFixture();
+
+        $hkUser = User::create([
+            'company_id' => $fixture['company']->id,
+            'name' => 'Staf HK Lintas Dept',
+            'username' => 'staf_hk_lintas',
+            'email' => 'staf.hk.lintas@novotel-yia.com',
+            'password' => Hash::make('Password123!'),
+            'role' => 'user',
+            'is_active' => true,
+        ]);
+
+        $hkEmployee = Employee::withoutGlobalScopes()->create([
+            'company_id' => $fixture['company']->id,
+            'user_id' => $hkUser->id,
+            'department_id' => $fixture['hkDept']->id,
+            'position' => 'Room Attendant',
+            'join_date' => '2025-06-15',
+            'status' => 'active',
+        ]);
+
+        $response = $this->actingAs($fixture['managerUser'])
+            ->delete(route('staff.destroy', $hkEmployee));
+
+        $response->assertForbidden();
+
+        $this->assertDatabaseHas('employees', ['id' => $hkEmployee->id]);
+        $this->assertDatabaseHas('users', ['id' => $hkUser->id]);
+    }
+
+    /**
+     * Uji 10: Pengguna ditolak (422 Unprocessable Entity) saat mencoba menghapus akun miliknya sendiri.
+     */
+    public function test_user_cannot_delete_own_account(): void
+    {
+        $fixture = $this->createTenantFixture();
+
+        $response = $this->actingAs($fixture['managerUser'])
+            ->delete(route('staff.destroy', $fixture['managerEmployee']));
+
+        $response->assertStatus(422);
+
+        $this->assertDatabaseHas('employees', ['id' => $fixture['managerEmployee']->id]);
+        $this->assertDatabaseHas('users', ['id' => $fixture['managerUser']->id]);
+    }
 }

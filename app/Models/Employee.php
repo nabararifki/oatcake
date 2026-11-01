@@ -63,6 +63,22 @@ class Employee extends Model
     }
 
     /**
+     * Resolve route model binding by numeric ID or UUID.
+     */
+    public function resolveRouteBinding($value, $field = null)
+    {
+        if ($field !== null) {
+            return $this->withoutGlobalScopes()->where($field, $value)->first();
+        }
+
+        if (is_numeric($value)) {
+            return $this->withoutGlobalScopes()->where('id', (int) $value)->first();
+        }
+
+        return $this->withoutGlobalScopes()->where('uuid', (string) $value)->first();
+    }
+
+    /**
      * Scope a query to only include active employees.
      */
     public function scopeActive(Builder $query): Builder
@@ -116,5 +132,13 @@ class Employee extends Model
     public function tags(): BelongsToMany
     {
         return $this->belongsToMany(Tag::class, 'employee_tags');
+    }
+
+    /**
+     * Get the work schedules assigned to the employee.
+     */
+    public function workSchedules(): HasMany
+    {
+        return $this->hasMany(WorkSchedule::class);
     }
 }

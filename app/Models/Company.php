@@ -93,4 +93,20 @@ class Company extends Model
     {
         return $this->hasMany(Tag::class);
     }
+
+    /**
+     * Get the master shifts for the company.
+     */
+    public function shifts(): HasMany
+    {
+        return $this->hasMany(Shift::class);
+    }
+
+    /**
+     * Get the work schedules for the company.
+     */
+    public function workSchedules(): HasMany
+    {
+        return $this->hasMany(WorkSchedule::class);
+    }
 }

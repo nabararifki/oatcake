@@ -83,7 +83,7 @@
             <div class="h-0.5 w-full shrink-0" style="background-color: var(--primary-accent);"></div>
 
             <!-- Baris 1: Topbar Terintegrasi Tanpa Garis Pemisah Bawah (Monolithic Seamless Frame) -->
-            <header style="view-transition-name: app-topbar;" class="h-14 px-3 sm:px-5 flex items-center justify-between gap-2 shrink-0 bg-surface z-20">
+            <header style="view-transition-name: app-topbar;" class="relative z-50 h-14 px-3 sm:px-5 flex items-center justify-between gap-2 shrink-0 bg-surface">
                 <!-- Sisi Kiri: Hamburger Mobile + Brand Tenant (Logo / Inisial + Nama Perusahaan + Badge Kode Properti) -->
                 <div class="flex items-center gap-1.5 sm:gap-3 min-w-0">
                     <button @click="mobileMenuOpen = true" type="button" aria-label="Open Mobile Menu"

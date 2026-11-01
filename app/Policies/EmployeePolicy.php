@@ -74,6 +74,10 @@ class EmployeePolicy
      */
     public function update(User $user, Employee $employee): bool
     {
+        if ($user->isSuperAdmin()) {
+            return true;
+        }
+
         if ($user->company_id === null || (int) $user->company_id !== (int) $employee->company_id) {
             return false;
         }
@@ -97,8 +101,25 @@ class EmployeePolicy
      */
     public function delete(User $user, Employee $employee): bool
     {
-        return $user->company_id !== null
-            && (int) $user->company_id === (int) $employee->company_id
-            && ($user->isAdmin() || $user->isSuperUser());
+        if ($user->isSuperAdmin()) {
+            return true;
+        }
+
+        if ($user->company_id === null || (int) $user->company_id !== (int) $employee->company_id) {
+            return false;
+        }
+
+        if ($user->isAdmin() || $user->isSuperUser()) {
+            return true;
+        }
+
+        if ($user->isManager()) {
+            $managerDepartmentId = $user->employee?->department_id;
+
+            return $managerDepartmentId !== null
+                && (int) $employee->department_id === (int) $managerDepartmentId;
+        }
+
+        return false;
     }
 }

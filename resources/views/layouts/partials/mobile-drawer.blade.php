@@ -101,6 +101,15 @@
             <span class="truncate">{{ __('nav.dashboard') }}</span>
         </a>
 
+        <!-- Schedule Roster (Gantt Chart 24h) -->
+        <a href="{{ route('roster.index') }}"
+           class="flex items-center gap-3 px-3.5 py-2.5 text-xs transition-all duration-150 {{ request()->routeIs('roster.*') ? 'bg-accent text-accent-fg font-semibold rounded-xl shadow-md' : 'text-ink-muted hover:bg-surface-muted hover:text-ink rounded-xl font-medium' }}">
+            <svg class="h-4 w-4 shrink-0" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.75" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M6.75 3v2.25M17.25 3v2.253 3.75h18M4.5 7.5h15a2.25 2.25 0 0 1 2.25 2.25v10.5A2.25 2.25 0 0 1 19.5 22.5H4.5A2.25 2.25 0 0 1 2.25 20.25V9.75A2.25 2.25 0 0 1 4.5 7.5Z" />
+            </svg>
+            <span class="truncate">{{ __('nav.schedule_roster') }}</span>
+        </a>
+
         @if ($user && ($user->isSuperAdmin() || $user->can('viewAny', \App\Models\Employee::class)))
             <a href="{{ route('staff.index') }}"
                class="flex items-center gap-3 px-3.5 py-2.5 text-xs transition-all duration-150 {{ request()->routeIs('staff.*') ? 'bg-accent text-accent-fg font-semibold rounded-xl shadow-md' : 'text-ink-muted hover:bg-surface-muted hover:text-ink rounded-xl font-medium' }}">

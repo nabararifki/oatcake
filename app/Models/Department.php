@@ -61,6 +61,22 @@ class Department extends Model
     }
 
     /**
+     * Get the is_24_hours alias for is_operational.
+     */
+    public function getIs24HoursAttribute(): bool
+    {
+        return (bool) ($this->attributes['is_operational'] ?? false);
+    }
+
+    /**
+     * Set the is_24_hours alias for is_operational.
+     */
+    public function setIs24HoursAttribute(mixed $value): void
+    {
+        $this->attributes['is_operational'] = (bool) $value;
+    }
+
+    /**
      * Get the company that owns the department.
      */
     public function company(): BelongsTo
