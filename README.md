@@ -14,10 +14,14 @@ OATCAKE adalah platform manajemen SDM dan penjadwalan rotasi kerja 24 jam non-st
 
 - **Multi-Tenancy**: Isolasi data antar properti hotel secara menyeluruh dengan dukungan kustomisasi tema dan warna aksen setiap tenant.
 - **Dual-Authentication & Closed Provisioning**: Sistem login ganda berbasis Google OAuth dan kredensial manual (username/email). Pendaftaran publik ditutup untuk memastikan seluruh staf didaftarkan secara terpusat oleh manajemen.
-- **5-Tier Role-Based Access Control (RBAC)**: Pembagian hak akses terstruktur mulai dari *Super Admin*, *Corporate Executive*, *HR Admin*, *Department Manager*, hingga *Staff*.
+- **5-Tier Role-Based Access Control (RBAC)**: Pembagian hak akses terstruktur mulai dari *Super Admin*, *Corporate Executive*, *HR Admin*, *Department Manager*, hingga *Staff*, termasuk dukungan multi-*super user* dan hak akses peninjauan jadwal lintas departemen (*read-only* `VIEW_ALL_SCHEDULES`).
+- **Gantt Chart Roster Kalender 24 Jam**: Matriks penjadwalan rotasi kerja *dual-axis sticky* bebas *double-scroll* dengan penugasan *drag-and-drop*, *snapping resize* presisi 15 menit, visualisasi shift lintas hari (*overnight*), dan linimasa 24 jam interaktif per tanggal.
+- **Kompatibilitas Layar Sentuh Mobile**: Mesin *touch-drag* dan *touch-tap* terintegrasi pada palet shift untuk memudahkan manajer menyusun jadwal langsung dari peramban ponsel pintar.
+- **Turnaround & 24-Hour Formation Intelligence**: Deteksi *soft turnaround warning* jeda istirahat (< 8 jam), pendeteksi celah kekosongan formasi operasional 24 jam (*gap detector*), audit ketersediaan harian *Manager on Duty* (MOD), serta peringatan batas jam kerja mingguan (> 40 jam/minggu).
+- **Siklus Draf, Publikasi & Rollback**: Alur perubahan jadwal berbasis draf, penanda visual *pending-delete ghost* untuk penghapusan jadwal terpublikasi, serta tombol pembatalan draf (*discard changes*) yang memulihkan ukuran dan status jadwal sebelumnya.
 - **Hospitality Design System**: Antarmuka adaptif dengan dukungan Dark Mode bebas kedip (anti-FOUC), kontras warna yang memenuhi standar aksesibilitas WCAG AA (rasio kontras ≥ 4.5:1), serta tabel data berdensitas tinggi.
 - **Manajemen Saldo DP (Day of Payment)**: Pengelolaan hak libur pengganti dan kompensasi shift untuk penugasan pada hari libur nasional atau lembur operasional.
-- **Dukungan Multi-Bahasa**: Pilihan bahasa Indonesia dan Inggris dengan peralihan instan.
+- **Dukungan Multi-Bahasa**: Pilihan bahasa Indonesia dan Inggris dengan peralihan instan dan paritas kamus 100%.
 
 ---
 
@@ -25,7 +29,7 @@ OATCAKE adalah platform manajemen SDM dan penjadwalan rotasi kerja 24 jam non-st
 
 - **Backend**: Laravel 12 & PHP 8.4+
 - **Database**: PostgreSQL 18
-- **Frontend**: Tailwind CSS & Alpine.js
+- **Frontend**: Tailwind CSS, Alpine.js, InteractJS, & @alpinejs/collapse
 - **Autentikasi**: Laravel Socialite (Google OAuth 2.0) & Session Guard
 
 ---
@@ -94,6 +98,18 @@ php artisan test --filter RoleAwareLayoutAndPolicyTest
 
 # Pengujian kepatuhan kontras WCAG AA
 php artisan test --filter AccentTest
+
+# Pengujian interaktivitas roster & resizing
+php artisan test --filter RosterInteractionTest
+
+# Pengujian logika bisnis roster & formasi 24 jam
+php artisan test --filter RosterBusinessLogicTest
+
+# Pengujian direktori dan provisioning staf
+php artisan test --filter StaffProvisioningTest
+
+# Pengujian paritas lokalisasi dwi-bahasa
+php artisan test --filter LangParityTest
 ```
 
 ---
