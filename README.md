@@ -15,8 +15,10 @@ OATCAKE adalah platform manajemen SDM dan penjadwalan rotasi kerja 24 jam non-st
 - **Multi-Tenancy**: Isolasi data antar properti hotel secara menyeluruh dengan dukungan kustomisasi tema dan warna aksen setiap tenant.
 - **Dual-Authentication & Closed Provisioning**: Sistem login ganda berbasis Google OAuth dan kredensial manual (username/email). Pendaftaran publik ditutup untuk memastikan seluruh staf didaftarkan secara terpusat oleh manajemen.
 - **5-Tier Role-Based Access Control (RBAC)**: Pembagian hak akses terstruktur mulai dari *Super Admin*, *Corporate Executive*, *HR Admin*, *Department Manager*, hingga *Staff*, termasuk dukungan multi-*super user* dan hak akses peninjauan jadwal lintas departemen (*read-only* `VIEW_ALL_SCHEDULES`).
-- **Gantt Chart Roster Kalender 24 Jam**: Matriks penjadwalan rotasi kerja *dual-axis sticky* bebas *double-scroll* dengan penugasan *drag-and-drop*, *snapping resize* presisi 15 menit, visualisasi shift lintas hari (*overnight*), dan linimasa 24 jam interaktif per tanggal.
-- **Kompatibilitas Layar Sentuh Mobile**: Mesin *touch-drag* dan *touch-tap* terintegrasi pada palet shift untuk memudahkan manajer menyusun jadwal langsung dari peramban ponsel pintar.
+- **Gantt Chart Roster Kalender 24 Jam**: Matriks penjadwalan rotasi kerja *dual-axis sticky* bebas *double-scroll* dengan penugasan *drag-and-drop*, *snapping resize* presisi 15 menit, mesin geser shift utuh (*shift drag-to-slide*), visualisasi shift lintas hari (*overnight*), badge durasi akumulasi jam kerja bersih, dan linimasa 24 jam interaktif per tanggal.
+- **Split-Shift Engine**: Kemampuan membelah satu jadwal shift aktif menjadi dua sesi kerja terpisah pada hari yang sama dengan kalkulasi titik tengah otomatis dan preservasi durasi total kerja yang identik ($Durasi_1 + Durasi_2 = Durasi_{\text{awal}}$).
+- **Linimasa 24 Jam Hari Ini di Dashboard**: Modal Gantt Chart 24 jam native (`<x-ui.modal>`) pada dashboard utama untuk meninjau jadwal seluruh staf lintas departemen secara langsung dengan isolasi *multi-tenancy* dan penyaringan visibilitas draf berbasis peran.
+- **Kompatibilitas Layar Sentuh Mobile & Bebas Overflow**: Mesin *touch-drag* dan *touch-tap* terintegrasi pada palet shift, menu aksi cepat (*popover actions*), serta toolbar responsif bebas *overflow horizontal* pada layar gawai seluler (360px–430px).
 - **Turnaround & 24-Hour Formation Intelligence**: Deteksi *soft turnaround warning* jeda istirahat (< 8 jam), pendeteksi celah kekosongan formasi operasional 24 jam (*gap detector*), audit ketersediaan harian *Manager on Duty* (MOD), serta peringatan batas jam kerja mingguan (> 40 jam/minggu).
 - **Siklus Draf, Publikasi & Rollback**: Alur perubahan jadwal berbasis draf, penanda visual *pending-delete ghost* untuk penghapusan jadwal terpublikasi, serta tombol pembatalan draf (*discard changes*) yang memulihkan ukuran dan status jadwal sebelumnya.
 - **Hospitality Design System**: Antarmuka adaptif dengan dukungan Dark Mode bebas kedip (anti-FOUC), kontras warna yang memenuhi standar aksesibilitas WCAG AA (rasio kontras ≥ 4.5:1), serta tabel data berdensitas tinggi.
@@ -107,6 +109,9 @@ php artisan test --filter RosterBusinessLogicTest
 
 # Pengujian direktori dan provisioning staf
 php artisan test --filter StaffProvisioningTest
+
+# Pengujian jadwal harian lintas departemen di dashboard
+php artisan test --filter DashboardScheduleTest
 
 # Pengujian paritas lokalisasi dwi-bahasa
 php artisan test --filter LangParityTest

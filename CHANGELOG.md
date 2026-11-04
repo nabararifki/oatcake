@@ -5,6 +5,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v0.3.1] - 2026-11-04
+
+### Added
+- **Mesin Belah Shift (Split-Shift Engine)**: Endpoint `POST /roster/{workSchedule}/split` dan otorisasi `WorkSchedulePolicy` untuk membagi satu shift aktif menjadi dua jadwal kerja terpisah pada hari yang sama dengan kalkulasi otomatis titik tengah ($T_{\text{mid}}$) presisi, mendukung shift reguler maupun lintas hari (*cross-day*), serta menjaga imutabilitas durasi total ($Durasi_1 + Durasi_2 = Durasi_{\text{awal}}$).
+- **Mesin Geser Shift Utuh (Shift Drag-to-Slide)**: Kemampuan menggeser balok shift terpasang secara horizontal di linimasa 24 jam menggunakan InteractJS (`lockAxis: 'x'`) dengan *snapping* kelipatan 15 menit, *floating tooltip* transformasi waktu real-time, dan preservasi durasi bersih shift tanpa perlu mengubah jam masuk dan jam pulang secara terpisah.
+- **Modal Gantt Chart 24 Jam Hari Ini pada Dashboard**: Visualisasi linimasa operasional harian seluruh staf lintas departemen dalam modal native `<x-ui.modal maxWidth="4xl">` dengan sumbu waktu 24 jam (interval 2 jam), 12 garis kisi vertikal, pengelompokan per departemen, penanda balok proporsional, dan kolom staf *sticky*.
+- **Badge Durasi Jam Bersih pada Balok Shift**: Penambahan indikator akumulasi jam kerja efektif (`8h`, `7.5h`, `12h`) di sudut kanan atas setiap balok shift pada kalender roster dengan tipografi mikro `text-3xs` dan penataan tata letak bebas tabrakan tombol aksi.
+- **Menu Aksi Cepat Sentuh Mobile**: Popover interaksi cepat pada balok shift saat diketuk pada layar ponsel untuk mempermudah eksekusi *Split Shift* dan penghapusan jadwal.
+- **Endpoint API Jadwal Harian Lintas Departemen**: Penambahan rute `GET /dashboard/today-schedules` dengan *eager loading* menyeluruh, isolasi multi-tenant, dan penyaringan berbasis peran (hanya jadwal `published` untuk staf biasa, dan penanda draf untuk manajer/admin).
+- **Pengujian Otomatis Lanjutan**: Test suite `DashboardScheduleTest` untuk validasi isolasi multi-tenant serta skenario uji regresi 9 dan 10 pada `RosterInteractionTest`.
+
+### Changed
+- **Rekonstruksi Modal Jadwal Dashboard**: Menghapus seluruh kartu ringkasan statis, widget MOD, dan teks pengantar di dalam modal dashboard untuk mendedikasikan 100% ruang modal pada visualisasi linimasa Gantt 24 jam murni.
+- **Dukungan Lebar Maksimum Modal**: Penambahan varian `maxWidth="3xl"` hingga `maxWidth="6xl"` (khususnya `sm:max-w-4xl`) pada komponen native dialog `<x-ui.modal>`.
+- **Ekstensi Payload Matriks Jadwal**: Penambahan atribut `duration_hours` dan `duration_label` pada `WorkSchedule::toMatrixPayload()` serta alias metode `getDurationInHours()`.
+- **Sinkronisasi Paritas Bahasa (i18n)**: Penambahan berkas lokalisasi dwi-bahasa baru `lang/id/dashboard.php` dan `lang/en/dashboard.php` serta kunci belah shift pada `roster.php`.
+
+### Fixed
+- **Eliminasi Overflow Horizontal Mobile pada Toolbar Roster**: Pembungkusan kontainer navigasi, badge status publikasi, dan bilah ringkasan aksi menggunakan `flex-wrap` dan kontainer scroll horizontal mandiri `.no-scrollbar` sehingga antarmuka tetap rapi pada layar gawai seluler beresolusi 360px–430px.
+- **Pencegahan Konflik Event Gestur Geser & Klik**: Penambahan atribut penanda status geser (`justSlid`) untuk mencegah terbukanya popover aksi saat balok shift selesai diseret.
+
 ## [v0.3.0] - 2026-11-01
 
 ### Added
