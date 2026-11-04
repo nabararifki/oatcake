@@ -47,6 +47,7 @@ export function registerRosterMatrix(Alpine) {
         touchHoverCell: null,
 
         assignUrl: config.assignUrl || '/roster/assign',
+        splitUrlTemplate: config.splitUrlTemplate || '/roster/__ID__/split',
         resizeUrlTemplate: config.resizeUrlTemplate || '/roster/__ID__/resize',
         restoreUrlTemplate: config.restoreUrlTemplate || '/roster/__ID__/restore',
         destroyUrlTemplate: config.destroyUrlTemplate || '/roster/__ID__',
@@ -58,6 +59,7 @@ export function registerRosterMatrix(Alpine) {
 
         savingState: 'idle', // 'idle' | 'saving' | 'saved' | 'error'
         statusMessage: '',
+        activeScheduleMenuId: null,
 
         turnaroundModal: {
             open: false,
@@ -236,6 +238,43 @@ export function registerRosterMatrix(Alpine) {
                 return Number(((endHour + 24) - startHour).toFixed(2));
             }
             return Number((endHour - startHour).toFixed(2));
+        },
+
+        getScheduleDurationHours(sched) {
+            if (!sched || sched.is_off) return 0;
+            if (sched.effective_start_time && sched.effective_end_time) {
+                return this.calculateDurationHours(
+                    sched.effective_start_time,
+                    sched.effective_end_time,
+                    this.isCrossDaySchedule(sched)
+                );
+            }
+            return Number(sched.duration_hours || 0);
+        },
+
+        findScheduleContextById(scheduleId) {
+            if (scheduleId === null || scheduleId === undefined || scheduleId === '') return null;
+            for (const empId of Object.keys(this.schedules || {})) {
+                const empDates = this.schedules[empId] || {};
+                for (const dateStr of Object.keys(empDates)) {
+                    const list = this.getSchedules(empId, dateStr);
+                    const existing = list.find(
+                        (s) => s && (Number(s.id) === Number(scheduleId) || String(s.uuid) === String(scheduleId))
+                    );
+                    if (existing) {
+                        return { empId: Number(empId), dateStr, existing };
+                    }
+                }
+            }
+            return null;
+        },
+
+        toggleScheduleMenu(scheduleId, event = null) {
+            if (event && typeof event.stopPropagation === 'function') {
+                event.stopPropagation();
+            }
+            if (!this.canEdit) return;
+            this.activeScheduleMenuId = this.activeScheduleMenuId === scheduleId ? null : scheduleId;
         },
 
         getOvernightCarryovers(empId, dateStr) {
@@ -564,6 +603,81 @@ export function registerRosterMatrix(Alpine) {
                 this.recalculateModAudit(dateStr);
                 this.savingState = 'saved';
                 this.statusMessage = response.data.message || this.i18n.resized || '';
+            } catch (error) {
+                this.savingState = 'error';
+                this.statusMessage = error?.response?.data?.message || this.i18n.saveFailed || '';
+            }
+        },
+
+        async slideSchedule(empId, dateStr, scheduleId, newStartTime, newEndTime) {
+            return this.resizeSchedule(empId, dateStr, scheduleId, newStartTime, newEndTime);
+        },
+
+        formatSlideDelta(deltaMins) {
+            if (!deltaMins) return '0m';
+            const sign = deltaMins > 0 ? '+' : '-';
+            const abs = Math.abs(deltaMins);
+            const h = Math.floor(abs / 60);
+            const m = abs % 60;
+            if (h > 0 && m > 0) return `${sign}${h}h ${m}m`;
+            if (h > 0) return `${sign}${h}h`;
+            return `${sign}${m}m`;
+        },
+
+        async splitSchedule(scheduleId, empId = null, dateStr = null, event = null) {
+            if (event && typeof event.stopPropagation === 'function') {
+                event.stopPropagation();
+            }
+            if (!this.canEdit) return;
+
+            let resolvedEmpId = empId;
+            let resolvedDateStr = dateStr;
+            let existing = null;
+
+            if (resolvedEmpId && resolvedDateStr) {
+                existing = this.getScheduleById(resolvedEmpId, resolvedDateStr, scheduleId);
+            } else {
+                const ctx = this.findScheduleContextById(scheduleId);
+                if (ctx) {
+                    resolvedEmpId = ctx.empId;
+                    resolvedDateStr = ctx.dateStr;
+                    existing = ctx.existing;
+                }
+            }
+
+            if (!existing || !existing.id || existing.is_off || existing.status === 'pending_delete') return;
+
+            this.savingState = 'saving';
+            this.activeScheduleMenuId = null;
+            const url = this.splitUrlTemplate.replace('__ID__', existing.uuid || existing.id);
+
+            try {
+                const response = await window.axios.post(
+                    url,
+                    {},
+                    {
+                        headers: {
+                            Accept: 'application/json',
+                            'X-CSRF-TOKEN': this.csrfToken,
+                        },
+                    }
+                );
+
+                const currentList = [...this.getSchedules(resolvedEmpId, resolvedDateStr)];
+                const idx = currentList.findIndex((s) => Number(s.id) === Number(existing.id));
+                const splitSchedules = response.data.schedules || [];
+
+                if (idx !== -1 && splitSchedules.length === 2) {
+                    currentList.splice(idx, 1, splitSchedules[0], splitSchedules[1]);
+                    this.schedules[resolvedEmpId][resolvedDateStr] = [...currentList];
+                } else if (splitSchedules.length > 0) {
+                    this.schedules[resolvedEmpId][resolvedDateStr] = splitSchedules;
+                }
+
+                this.recalculateCounts();
+                this.recalculateModAudit(resolvedDateStr);
+                this.savingState = 'saved';
+                this.statusMessage = response.data.message || this.i18n.splitSuccess || '';
             } catch (error) {
                 this.savingState = 'error';
                 this.statusMessage = error?.response?.data?.message || this.i18n.saveFailed || '';
@@ -1203,6 +1317,115 @@ export function registerRosterMatrix(Alpine) {
 
                         if (empId && dateStr && scheduleId && newStart && newEnd) {
                             self.resizeSchedule(empId, dateStr, scheduleId, newStart, newEnd);
+                        }
+                    },
+                },
+            }).draggable({
+                lockAxis: 'x',
+                ignoreFrom: '.o-resize-handle-left, .o-resize-handle-right, .cursor-col-resize, button',
+                listeners: {
+                    start(event) {
+                        const target = event.target;
+                        const empId = Number(target.dataset.employeeId);
+                        const dateStr = target.dataset.date;
+                        const scheduleId = Number(target.dataset.scheduleId);
+                        const sched = self.getScheduleById(empId, dateStr, scheduleId);
+                        if (!sched || sched.is_off || sched.status === 'pending_delete') return;
+
+                        if (sched.status === 'published' && !sched.published_start_time && !sched.published_end_time) {
+                            sched.published_start_time = sched.effective_start_time;
+                            sched.published_end_time = sched.effective_end_time;
+                        }
+
+                        const origStartMins = self.timeStrToMinutes(sched.effective_start_time);
+                        const origEndMins = self.timeStrToMinutes(sched.effective_end_time);
+                        const wasCrossDay = self.isCrossDaySchedule(sched);
+                        const origDurationMins = (wasCrossDay || origEndMins <= origStartMins)
+                            ? ((origEndMins + 1440) - origStartMins)
+                            : (origEndMins - origStartMins);
+
+                        target.dataset.slideOrigStartMins = String(origStartMins);
+                        target.dataset.slideOrigEndMins = String(origEndMins);
+                        target.dataset.slideOrigDurationMins = String(origDurationMins);
+                        target.dataset.slideOrigStartStr = (sched.effective_start_time || '').slice(0, 5);
+                        target.dataset.slideOrigEndStr = (sched.effective_end_time || '').slice(0, 5);
+                        target.dataset.slideAccDx = '0';
+                        target.dataset.slideMoved = '0';
+                    },
+                    move(event) {
+                        const target = event.target;
+                        const empId = Number(target.dataset.employeeId);
+                        const dateStr = target.dataset.date;
+                        const scheduleId = Number(target.dataset.scheduleId);
+                        const sched = self.getScheduleById(empId, dateStr, scheduleId);
+                        if (!sched || sched.is_off || sched.status === 'pending_delete') return;
+
+                        const origStartMins = Number(target.dataset.slideOrigStartMins || 420);
+                        const origDurationMins = Number(target.dataset.slideOrigDurationMins || 480);
+
+                        const accDx = Number(target.dataset.slideAccDx || 0) + event.dx;
+                        target.dataset.slideAccDx = String(accDx);
+
+                        // Snapping per 15 menit (6px per 15m), menjaga durasi bersih konstan
+                        const deltaMins = Math.round(accDx / 6) * 15;
+                        const newStartMins = (((origStartMins + deltaMins) % 1440) + 1440) % 1440;
+                        const newEndMins = (((newStartMins + origDurationMins) % 1440) + 1440) % 1440;
+
+                        const newStartStr = self.minutesToTimeStr(newStartMins);
+                        const newEndStr = self.minutesToTimeStr(newEndMins);
+                        const isCrossDay = (newStartMins + origDurationMins) >= 1440 || newEndMins <= newStartMins;
+                        const durationHours = Number((origDurationMins / 60).toFixed(2));
+
+                        sched.effective_start_time = newStartStr;
+                        sched.effective_end_time = newEndStr;
+                        sched.cross_day = isCrossDay;
+                        sched.duration_hours = durationHours;
+
+                        target.dataset.slidePreviewStart = newStartStr;
+                        target.dataset.slidePreviewEnd = newEndStr;
+                        target.dataset.slideMoved = deltaMins !== 0 ? '1' : '0';
+
+                        const origStartShort = target.dataset.slideOrigStartStr || newStartStr.slice(0, 5);
+                        const origEndShort = target.dataset.slideOrigEndStr || newEndStr.slice(0, 5);
+                        const deltaLabel = self.formatSlideDelta(deltaMins);
+
+                        self.resizeTooltip = {
+                            visible: true,
+                            x: event.client.x,
+                            y: event.client.y - 36,
+                            text: `${origStartShort} – ${origEndShort} → ${newStartStr.slice(0, 5)} – ${newEndStr.slice(0, 5)} (${deltaLabel})`,
+                        };
+                    },
+                    end(event) {
+                        const target = event.target;
+                        self.resizeTooltip.visible = false;
+
+                        const empId = Number(target.dataset.employeeId);
+                        const dateStr = target.dataset.date;
+                        const scheduleId = Number(target.dataset.scheduleId);
+                        const newStart = target.dataset.slidePreviewStart;
+                        const newEnd = target.dataset.slidePreviewEnd;
+                        const moved = target.dataset.slideMoved === '1';
+
+                        delete target.dataset.slideOrigStartMins;
+                        delete target.dataset.slideOrigEndMins;
+                        delete target.dataset.slideOrigDurationMins;
+                        delete target.dataset.slideOrigStartStr;
+                        delete target.dataset.slideOrigEndStr;
+                        delete target.dataset.slideAccDx;
+                        delete target.dataset.slidePreviewStart;
+                        delete target.dataset.slidePreviewEnd;
+                        delete target.dataset.slideMoved;
+
+                        if (moved) {
+                            target.dataset.justSlid = '1';
+                            setTimeout(() => {
+                                delete target.dataset.justSlid;
+                            }, 120);
+                        }
+
+                        if (moved && empId && dateStr && scheduleId && newStart && newEnd) {
+                            self.slideSchedule(empId, dateStr, scheduleId, newStart, newEnd);
                         }
                     },
                 },

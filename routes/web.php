@@ -22,6 +22,8 @@ Route::get('/dashboard', [DashboardController::class, 'index'])
     ->name('dashboard');
 
 Route::middleware('auth')->group(function () {
+    Route::get('/dashboard/today-schedules', [DashboardController::class, 'todaySchedules'])->name('dashboard.today-schedules');
+
     Route::get('/profile', [ProfileController::class, 'edit'])->name('profile.edit');
     Route::patch('/profile', [ProfileController::class, 'update'])->name('profile.update');
     Route::delete('/profile', [ProfileController::class, 'destroy'])->name('profile.destroy');
@@ -36,6 +38,7 @@ Route::middleware('auth')->group(function () {
 
     Route::get('/roster', [RosterController::class, 'index'])->name('roster.index');
     Route::post('/roster/assign', [RosterController::class, 'assign'])->name('roster.assign');
+    Route::post('/roster/{workSchedule}/split', [RosterController::class, 'split'])->name('roster.split');
     Route::patch('/roster/{workSchedule}/resize', [RosterController::class, 'resize'])->name('roster.resize');
     Route::patch('/roster/{workSchedule}/restore', [RosterController::class, 'restore'])->name('roster.restore');
     Route::delete('/roster/{workSchedule}', [RosterController::class, 'destroy'])->name('roster.destroy');

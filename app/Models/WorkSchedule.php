@@ -346,6 +346,14 @@ class WorkSchedule extends Model
     }
 
     /**
+     * Alias helper for net shift duration in hours (e.g. 8, 7.5, 12).
+     */
+    public function getDurationInHours(): float
+    {
+        return $this->getEffectiveDurationInHours();
+    }
+
+    /**
      * Transform the schedule into a normalized matrix payload for frontend & JSON API.
      *
      * @return array<string, mixed>
@@ -358,6 +366,7 @@ class WorkSchedule extends Model
         $endStr = $this->getEffectiveEndTime();
         $isCrossDay = $startStr !== '' && $endStr !== '' && $endStr <= $startStr;
         $hasCustomTimes = ! empty($this->custom_start_time) && ! empty($this->custom_end_time);
+        $durationHours = $this->getDurationInHours();
 
         return [
             'id' => $this->id,
@@ -379,7 +388,8 @@ class WorkSchedule extends Model
             'published_end_time' => $this->published_end_time,
             'cross_day' => $hasCustomTimes ? $isCrossDay : ($shift ? (bool) ($shift->cross_day || $isCrossDay) : false),
             'is_off' => $this->isOff(),
-            'duration_hours' => $this->getEffectiveDurationInHours(),
+            'duration_hours' => $durationHours,
+            'duration_label' => $durationHours . 'h',
             'duty_tag_id' => $this->duty_tag_id,
             'duty_tag_code' => $dutyTag?->code,
             'status' => $this->status,

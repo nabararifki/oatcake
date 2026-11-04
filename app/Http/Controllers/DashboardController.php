@@ -6,6 +6,9 @@ use App\Models\Company;
 use App\Models\Department;
 use App\Models\Employee;
 use App\Models\User;
+use App\Models\WorkSchedule;
+use Carbon\Carbon;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
@@ -14,9 +17,109 @@ use Illuminate\View\View;
 class DashboardController extends Controller
 {
     /**
+     * Resolve today's cross-department work schedules for the active tenant company.
+     * Regular users (role: user) only see 'published' schedules; Managers/Admins also see 'draft'.
+     *
+     * @return array<string, mixed>
+     */
+    protected function resolveTodaySchedulesData(User $user, ?Company $activeCompany): array
+    {
+        $scheduleCompany = $activeCompany ?? ($user->isSuperAdmin() ? Company::orderBy('id')->first() : $user->company);
+        $today = Carbon::today('Asia/Jakarta');
+        $todayDate = $today->toDateString();
+        $todayFormatted = $today->translatedFormat('d F Y');
+
+        if (! $scheduleCompany) {
+            return [
+                'todayDate' => $todayDate,
+                'todayFormatted' => $todayFormatted,
+                'todaySchedules' => collect(),
+                'todaySchedulesByDepartment' => collect(),
+                'todayMods' => collect(),
+                'todaySchedulesPayload' => [],
+            ];
+        }
+
+        $todaySchedules = WorkSchedule::withoutGlobalScopes()
+            ->where('company_id', $scheduleCompany->id)
+            ->where('schedule_date', $todayDate)
+            ->where('status', '!=', 'pending_delete')
+            ->when($user->isUser(), fn ($q) => $q->published())
+            ->with([
+                'employee' => fn ($q) => $q->withoutGlobalScopes()->with([
+                    'user',
+                    'department' => fn ($dq) => $dq->withoutGlobalScopes(),
+                    'tags' => fn ($tq) => $tq->withoutGlobalScopes(),
+                ]),
+                'shift' => fn ($q) => $q->withoutGlobalScopes(),
+                'dutyTag' => fn ($q) => $q->withoutGlobalScopes(),
+            ])
+            ->orderBy('id')
+            ->get();
+
+        $todaySchedulesByDepartment = $todaySchedules->groupBy(
+            fn (WorkSchedule $ws) => $ws->employee?->department?->name ?? '-'
+        );
+
+        $todayMods = $todaySchedules->filter(function (WorkSchedule $ws): bool {
+            if ($ws->isOff()) {
+                return false;
+            }
+
+            return $ws->shift?->code === 'MOD'
+                || $ws->dutyTag?->code === 'MOD_ELIGIBLE'
+                || ($ws->employee?->tags?->contains('code', 'MOD_ELIGIBLE') ?? false);
+        })->values();
+
+        $todaySchedulesPayload = $todaySchedules->map(function (WorkSchedule $ws): array {
+            $startStr = $ws->getEffectiveStartTime();
+            $endStr = $ws->getEffectiveEndTime();
+            $isMod = ! $ws->isOff() && (
+                $ws->shift?->code === 'MOD'
+                || $ws->dutyTag?->code === 'MOD_ELIGIBLE'
+                || ($ws->employee?->tags?->contains('code', 'MOD_ELIGIBLE') ?? false)
+            );
+
+            return [
+                'id' => $ws->id,
+                'uuid' => $ws->uuid,
+                'company_id' => $ws->company_id,
+                'employee_id' => $ws->employee_id,
+                'employee_name' => $ws->employee?->user?->name ?? '-',
+                'position' => $ws->employee?->position ?? '-',
+                'department_id' => $ws->employee?->department_id,
+                'department_code' => $ws->employee?->department?->code ?? '-',
+                'department_name' => $ws->employee?->department?->name ?? '-',
+                'shift_id' => $ws->shift_id,
+                'shift_code' => $ws->shift ? $ws->shift->code : 'OFF',
+                'shift_name' => $ws->shift ? $ws->shift->name : __('roster.day_off_dp'),
+                'color_badge' => $ws->shift ? $ws->shift->color_badge : '#71717A',
+                'start_time' => $startStr !== '' ? substr($startStr, 0, 5) : '-',
+                'end_time' => $endStr !== '' ? substr($endStr, 0, 5) : '-',
+                'effective_start_time' => $startStr,
+                'effective_end_time' => $endStr,
+                'duration_hours' => $ws->getDurationInHours(),
+                'is_off' => $ws->isOff(),
+                'status' => $ws->status,
+                'duty_tag_code' => $ws->dutyTag?->code,
+                'is_mod' => $isMod,
+            ];
+        })->values()->all();
+
+        return [
+            'todayDate' => $todayDate,
+            'todayFormatted' => $todayFormatted,
+            'todaySchedules' => $todaySchedules,
+            'todaySchedulesByDepartment' => $todaySchedulesByDepartment,
+            'todayMods' => $todayMods,
+            'todaySchedulesPayload' => $todaySchedulesPayload,
+        ];
+    }
+
+    /**
      * Display the role-aware multi-tier dashboard.
      */
-    public function index(Request $request): View
+    public function index(Request $request): View|JsonResponse
     {
         $user = User::with([
             'company',
@@ -109,6 +212,24 @@ class DashboardController extends Controller
             ];
         }
 
+        $todayData = $this->resolveTodaySchedulesData($user, $activeCompany);
+        $todayDate = $todayData['todayDate'];
+        $todayFormatted = $todayData['todayFormatted'];
+        $todaySchedules = $todayData['todaySchedules'];
+        $todaySchedulesByDepartment = $todayData['todaySchedulesByDepartment'];
+        $todayMods = $todayData['todayMods'];
+        $todaySchedulesPayload = $todayData['todaySchedulesPayload'];
+
+        if ($request->wantsJson()) {
+            return response()->json([
+                'date' => $todayDate,
+                'formatted_date' => $todayFormatted,
+                'total_scheduled' => $todaySchedules->count(),
+                'schedules' => $todaySchedulesPayload,
+                'mods' => array_values(array_filter($todaySchedulesPayload, fn (array $item) => $item['is_mod'])),
+            ]);
+        }
+
         return view('dashboard', compact(
             'user',
             'activeCompany',
@@ -117,8 +238,35 @@ class DashboardController extends Controller
             'corporateStats',
             'departmentBreakdown',
             'platformStats',
-            'tenants'
+            'tenants',
+            'todayDate',
+            'todayFormatted',
+            'todaySchedules',
+            'todaySchedulesByDepartment',
+            'todayMods',
+            'todaySchedulesPayload'
         ));
+    }
+
+    /**
+     * Return today's cross-department work schedules as JSON.
+     */
+    public function todaySchedules(Request $request): JsonResponse
+    {
+        $user = User::with(['company', 'employee.department', 'employee.tags'])->findOrFail($request->user()->id);
+        $activeCompany = $user->isSuperAdmin() && session('active_company_id')
+            ? Company::find(session('active_company_id'))
+            : $user->company;
+
+        $todayData = $this->resolveTodaySchedulesData($user, $activeCompany);
+
+        return response()->json([
+            'date' => $todayData['todayDate'],
+            'formatted_date' => $todayData['todayFormatted'],
+            'total_scheduled' => $todayData['todaySchedules']->count(),
+            'schedules' => $todayData['todaySchedulesPayload'],
+            'mods' => array_values(array_filter($todayData['todaySchedulesPayload'], fn (array $item) => $item['is_mod'])),
+        ]);
     }
 
     /**

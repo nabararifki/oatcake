@@ -90,6 +90,15 @@
     .o-inset-stage::-webkit-scrollbar-thumb:hover {
         background-color: rgb(var(--c-ink-faint));
     }
+
+    /* Hide scrollbar for horizontal mobile action toolbars */
+    .no-scrollbar {
+        -ms-overflow-style: none;
+        scrollbar-width: none;
+    }
+    .no-scrollbar::-webkit-scrollbar {
+        display: none;
+    }
 }
 
 /* Cross-document View Transitions (MPA) — browser modern; lainnya fallback ke animasi stage */

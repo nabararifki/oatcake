@@ -53,6 +53,7 @@ export default {
                 tooltip: '200',
             },
             fontSize: {
+                '3xs': ['9px', '12px'],
                 '2xs': ['11px', '16px'],
                 'cell': ['13px', '18px'],
             },

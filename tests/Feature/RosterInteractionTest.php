@@ -511,4 +511,142 @@ class RosterInteractionTest extends TestCase
             'is_active' => true,
         ]);
     }
+
+    /**
+     * Skenario 9: Endpoint POST /roster/{workSchedule}/split membelah 1 shift aktif menjadi 2 jadwal draft
+     * pada tanggal yang sama dengan tetap menjaga immutabilitas total jam kerja (Durasi_1 + Durasi_2 = Durasi_awal),
+     * baik untuk shift reguler (07:00-15:00 -> 07:00-11:00 & 11:00-15:00) maupun lintas hari (23:00-07:00 -> 23:00-03:00 & 03:00-07:00).
+     */
+    public function test_scenario_9_roster_split_divides_shift_into_two_draft_schedules_preserving_total_duration(): void
+    {
+        $fixture = $this->setUpRosterFixture();
+
+        // 9a. Buat jadwal shift MO (07:00:00 - 15:00:00, durasi 8 jam)
+        $schedule = WorkSchedule::withoutGlobalScopes()->create([
+            'company_id' => $fixture['hotelA']->id,
+            'employee_id' => $fixture['staffEmployee']->id,
+            'shift_id' => $fixture['shiftMO']->id,
+            'schedule_date' => '2026-11-27',
+            'custom_start_time' => '07:00:00',
+            'custom_end_time' => '15:00:00',
+            'status' => 'published',
+            'created_by' => $fixture['managerUser']->id,
+        ]);
+
+        $originalDuration = $schedule->getDurationInHours();
+        $this->assertSame(8.0, $originalDuration);
+
+        // User biasa ditolak (403 Forbidden) saat mencoba split shift
+        $this->actingAs($fixture['staffUser'])
+            ->postJson(route('roster.split', $schedule))
+            ->assertForbidden();
+
+        // Manager departemen membelah shift MO menjadi 2 sesi @ 4 jam
+        $splitResponse = $this->actingAs($fixture['managerUser'])
+            ->postJson(route('roster.split', $schedule));
+
+        $splitResponse->assertOk()
+            ->assertJsonCount(2, 'schedules')
+            ->assertJsonPath('schedules.0.id', $schedule->id)
+            ->assertJsonPath('schedules.0.custom_start_time', '07:00:00')
+            ->assertJsonPath('schedules.0.custom_end_time', '11:00:00')
+            ->assertJsonPath('schedules.0.duration_hours', 4)
+            ->assertJsonPath('schedules.0.status', 'draft')
+            ->assertJsonPath('schedules.1.employee_id', $fixture['staffEmployee']->id)
+            ->assertJsonPath('schedules.1.schedule_date', '2026-11-27')
+            ->assertJsonPath('schedules.1.custom_start_time', '11:00:00')
+            ->assertJsonPath('schedules.1.custom_end_time', '15:00:00')
+            ->assertJsonPath('schedules.1.duration_hours', 4)
+            ->assertJsonPath('schedules.1.status', 'draft');
+
+        $resultingSchedules = WorkSchedule::withoutGlobalScopes()
+            ->where('employee_id', $fixture['staffEmployee']->id)
+            ->where('schedule_date', '2026-11-27')
+            ->orderBy('id')
+            ->get();
+
+        $this->assertCount(2, $resultingSchedules);
+        $this->assertSame(
+            $originalDuration,
+            $resultingSchedules[0]->getDurationInHours() + $resultingSchedules[1]->getDurationInHours()
+        );
+
+        // 9b. Uji split pada shift lintas hari (NI: 23:00:00 - 07:00:00, durasi 8 jam -> 23:00-03:00 & 03:00-07:00)
+        $overnightSchedule = WorkSchedule::withoutGlobalScopes()->create([
+            'company_id' => $fixture['hotelA']->id,
+            'employee_id' => $fixture['staffEmployee']->id,
+            'shift_id' => $fixture['shiftNI']->id,
+            'schedule_date' => '2026-11-28',
+            'custom_start_time' => '23:00:00',
+            'custom_end_time' => '07:00:00',
+            'status' => 'published',
+            'created_by' => $fixture['managerUser']->id,
+        ]);
+
+        $overnightSplitResponse = $this->actingAs($fixture['managerUser'])
+            ->postJson(route('roster.split', $overnightSchedule));
+
+        $overnightSplitResponse->assertOk()
+            ->assertJsonCount(2, 'schedules')
+            ->assertJsonPath('schedules.0.custom_start_time', '23:00:00')
+            ->assertJsonPath('schedules.0.custom_end_time', '03:00:00')
+            ->assertJsonPath('schedules.0.duration_hours', 4)
+            ->assertJsonPath('schedules.0.status', 'draft')
+            ->assertJsonPath('schedules.1.custom_start_time', '03:00:00')
+            ->assertJsonPath('schedules.1.custom_end_time', '07:00:00')
+            ->assertJsonPath('schedules.1.duration_hours', 4)
+            ->assertJsonPath('schedules.1.status', 'draft');
+    }
+
+    /**
+     * Skenario 10: Geser shift utuh (Shift Drag-to-Slide) memajukan/memundurkan jam masuk & pulang secara bersamaan
+     * dengan menjaga durasi bersih tetap konstan (8.0 jam), termasuk saat digeser melewati tengah malam (cross-day).
+     */
+    public function test_scenario_10_shift_slide_preserves_constant_duration_and_transitions_to_draft(): void
+    {
+        $fixture = $this->setUpRosterFixture();
+
+        $schedule = WorkSchedule::withoutGlobalScopes()->create([
+            'company_id' => $fixture['hotelA']->id,
+            'employee_id' => $fixture['staffEmployee']->id,
+            'shift_id' => $fixture['shiftMO']->id,
+            'schedule_date' => '2026-11-29',
+            'custom_start_time' => '07:00:00',
+            'custom_end_time' => '15:00:00',
+            'status' => 'published',
+            'created_by' => $fixture['managerUser']->id,
+        ]);
+
+        $initialDuration = $schedule->getDurationInHours();
+        $this->assertSame(8.0, $initialDuration);
+
+        // 10a. Geser shift +1h 15m (07:00 - 15:00 -> 08:15 - 16:15)
+        $slideResponse = $this->actingAs($fixture['managerUser'])
+            ->patchJson(route('roster.resize', $schedule), [
+                'custom_start_time' => '08:15:00',
+                'custom_end_time' => '16:15:00',
+            ]);
+
+        $slideResponse->assertOk()
+            ->assertJsonPath('schedule.custom_start_time', '08:15:00')
+            ->assertJsonPath('schedule.custom_end_time', '16:15:00')
+            ->assertJsonPath('schedule.duration_hours', 8)
+            ->assertJsonPath('schedule.status', 'draft')
+            ->assertJsonPath('schedule.published_start_time', '07:00:00')
+            ->assertJsonPath('schedule.published_end_time', '15:00:00');
+
+        // 10b. Geser shift melewati tengah malam (18:30 - 02:30 lintas hari, tetap 8 jam)
+        $crossDaySlideResponse = $this->actingAs($fixture['managerUser'])
+            ->patchJson(route('roster.resize', $schedule), [
+                'custom_start_time' => '18:30:00',
+                'custom_end_time' => '02:30:00',
+            ]);
+
+        $crossDaySlideResponse->assertOk()
+            ->assertJsonPath('schedule.custom_start_time', '18:30:00')
+            ->assertJsonPath('schedule.custom_end_time', '02:30:00')
+            ->assertJsonPath('schedule.cross_day', true)
+            ->assertJsonPath('schedule.duration_hours', 8)
+            ->assertJsonPath('schedule.status', 'draft');
+    }
 }

@@ -101,4 +101,6 @@ return [
     'modal_discard_desc'            => 'Semua jadwal draf baru akan dihapus dan jadwal yang ditandai hapus akan dipulihkan.',
     'btn_confirm_discard'           => 'Ya, Batalkan Draf',
     'discard_success'               => 'Seluruh ubahan draf berhasil dibatalkan.',
+    'action_split_shift'            => 'Belah Shift',
+    'split_success'                 => 'Shift berhasil dibelah menjadi 2 jadwal.',
 ];

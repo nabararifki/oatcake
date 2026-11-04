@@ -28,9 +28,11 @@
                     shiftUpdated: '{{ __('roster.shift_updated_successfully') }}',
                     published: '{{ __('roster.status_published') }}',
                     discarded: '{{ __('roster.discard_success') }}',
+                    splitSuccess: '{{ __('roster.split_success') }}',
                     defaultNewShiftName: '{{ __('roster.default_new_shift_name') }}'
                 },
                 assignUrl: '{{ route('roster.assign') }}',
+                splitUrlTemplate: '{{ route('roster.split', '__ID__') }}',
                 resizeUrlTemplate: '{{ route('roster.resize', '__ID__') }}',
                 restoreUrlTemplate: '{{ route('roster.restore', '__ID__') }}',
                 destroyUrlTemplate: '{{ route('roster.destroy', '__ID__') }}',
@@ -42,20 +44,20 @@
              class="flex-1 min-h-0 flex flex-col overflow-hidden bg-canvas text-ink select-none">
 
             <!-- Toolbar Palet Shift & Status Sinkronisasi -->
-            <div class="shrink-0 border-b border-line bg-surface px-3 py-2 sm:px-4 flex flex-wrap items-center justify-between gap-3 z-30">
+            <div class="shrink-0 border-b border-line bg-surface px-3 py-2 sm:px-4 flex flex-wrap items-center justify-between gap-2 sm:gap-3 w-full max-w-full z-30">
                 <!-- Sisi Kiri: Judul Halaman & Palet Shift Draggable Murni dengan Hover Tooltip -->
-                <div class="flex flex-wrap items-center gap-2.5 sm:gap-3 min-w-0">
-                    <div class="flex items-center gap-2">
-                        <span class="inline-flex h-2.5 w-2.5 rounded-full" style="background-color: var(--primary-accent);"></span>
+                <div class="flex flex-wrap items-center gap-2 sm:gap-3 min-w-0 w-full sm:w-auto">
+                    <div class="flex flex-wrap items-center gap-2 w-full sm:w-auto min-w-0">
+                        <span class="inline-flex h-2.5 w-2.5 rounded-full shrink-0" style="background-color: var(--primary-accent);"></span>
                         <h1 class="text-xs sm:text-sm font-bold tracking-tight text-ink truncate">
                             {{ __('roster.title') }}
                         </h1>
-                        <span class="hidden md:inline-flex rounded-md bg-surface-muted px-2 py-0.5 text-[10px] font-mono font-semibold text-ink-muted ring-1 ring-inset ring-line">
+                        <span class="hidden md:inline-flex rounded-md bg-surface-muted px-2 py-0.5 text-[10px] font-mono font-semibold text-ink-muted ring-1 ring-inset ring-line shrink-0">
                             {{ $startOfMonth->translatedFormat('F Y') }}
                         </span>
 
                         <!-- Badge Status Publikasi Reaktif -->
-                        <span class="o-badge font-mono text-[10px]"
+                        <span class="o-badge font-mono text-[10px] shrink-0 whitespace-nowrap"
                               :class="!hasPendingChanges && publishedCount > 0 ? 'o-badge-success' : 'o-badge-warning'"
                               x-text="!hasPendingChanges && publishedCount > 0 ? '{{ __('roster.status_published') }}' : ('{{ __('roster.status_draft') }}' + (hasPendingChanges ? ' (' + (draftCount + pendingDeleteCount) + ')' : ''))">
                         </span>
@@ -64,8 +66,8 @@
                     <!-- Shift Palette Toolbar (Pure Drag-and-Drop & Hover Tooltips — Tanpa Mode Kuas) -->
                     @if ($canEdit)
                         <div class="h-4 w-px bg-line hidden sm:block"></div>
-                        <div class="flex flex-wrap items-center gap-1.5 py-0.5">
-                            <div id="roster-shift-palette" class="flex flex-wrap items-center gap-1.5">
+                        <div class="flex flex-wrap items-center gap-1.5 py-0.5 max-w-full">
+                            <div id="roster-shift-palette" class="flex flex-wrap items-center gap-1.5 max-w-full">
                                 @foreach ($shifts as $s)
                                     <div class="relative group shrink-0"
                                          draggable="true"
@@ -205,12 +207,12 @@
                 </div>
 
                 <!-- Sisi Kanan: Kontrol Publikasi, Filter MOD, dan Status Sinkronisasi -->
-                <div class="flex items-center gap-2 sm:gap-3 shrink-0 text-2xs">
+                <div class="overflow-x-auto no-scrollbar w-full sm:w-auto flex items-center gap-2 pb-1 sm:pb-0 text-2xs min-w-0">
                     <!-- Indikator Tanggal 24 Jam Aktif (Jika Ada Kolom Tanggal yang Sedang Di-Expand) -->
                     <template x-if="expandedDate">
                         <button type="button"
                                 @click="expandedDate = null"
-                                class="px-2 py-1 rounded-md bg-accent/15 text-accent font-mono text-2xs font-bold ring-1 ring-inset ring-accent/30 flex items-center gap-1 cursor-pointer">
+                                class="px-2 py-1 rounded-md bg-accent/15 text-accent font-mono text-2xs font-bold ring-1 ring-inset ring-accent/30 flex items-center gap-1 cursor-pointer shrink-0 whitespace-nowrap">
                             <span x-text="expandedDate"></span>
                             <span>(24h ×)</span>
                         </button>
@@ -220,8 +222,8 @@
                     <button type="button"
                             @click="modOnly = !modOnly"
                             :class="modOnly ? 'bg-amber-500 text-white font-bold ring-2 ring-amber-500/50' : 'bg-surface-muted text-ink-muted hover:text-ink'"
-                            class="px-2 py-1 rounded-md text-2xs font-semibold ring-1 ring-inset ring-line flex items-center gap-1.5 transition-all cursor-pointer">
-                        <span class="h-1.5 w-1.5 rounded-full" :class="modOnly ? 'bg-white' : 'bg-amber-500'"></span>
+                            class="px-2 py-1 rounded-md text-2xs font-semibold ring-1 ring-inset ring-line flex items-center gap-1.5 transition-all cursor-pointer shrink-0 whitespace-nowrap">
+                        <span class="h-1.5 w-1.5 rounded-full shrink-0" :class="modOnly ? 'bg-white' : 'bg-amber-500'"></span>
                         <span>{{ __('roster.mod_filter_label') }}</span>
                     </button>
 
@@ -230,8 +232,8 @@
                         <button type="button"
                                 @click="confirmDiscardDrafts()"
                                 :disabled="!hasPendingChanges"
-                                class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl border border-line bg-surface hover:bg-surface-muted text-ink text-xs font-semibold shadow-sm transition-all disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer">
-                            <svg class="w-3.5 h-3.5 text-ink-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                class="inline-flex items-center gap-1.5 px-2.5 py-1 sm:px-3.5 sm:py-2 rounded-lg sm:rounded-xl border border-line bg-surface hover:bg-surface-muted text-ink text-2xs sm:text-xs font-semibold shadow-sm transition-all disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer shrink-0 whitespace-nowrap">
+                            <svg class="w-3.5 h-3.5 text-ink-muted shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" />
                             </svg>
                             <span>{{ __('roster.btn_discard_draft') }}</span>
@@ -243,8 +245,8 @@
                                 :class="(!hasPendingChanges || savingState === 'saving')
                                     ? 'opacity-50 cursor-not-allowed bg-surface-muted text-ink-muted border border-line'
                                     : 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-2xs cursor-pointer'"
-                                class="px-2.5 py-1 rounded-md text-2xs font-bold transition-all flex items-center gap-1">
-                            <svg class="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor">
+                                class="px-2.5 py-1 rounded-md text-2xs font-bold transition-all flex items-center gap-1 shrink-0 whitespace-nowrap">
+                            <svg class="h-3.5 w-3.5 shrink-0" viewBox="0 0 20 20" fill="currentColor">
                                 <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/>
                             </svg>
                             <span>{{ __('roster.btn_publish') }}</span>
@@ -252,10 +254,10 @@
                     @endif
 
                     <!-- Indikator Sinkronisasi Real-Time -->
-                    <div class="flex items-center gap-1.5 px-2 py-1 rounded-md bg-surface-muted ring-1 ring-inset ring-line text-ink-muted">
+                    <div class="flex items-center gap-1.5 px-2 py-1 rounded-md bg-surface-muted ring-1 ring-inset ring-line text-ink-muted shrink-0 whitespace-nowrap">
                         <template x-if="savingState === 'saving'">
                             <span class="flex items-center gap-1.5 text-accent">
-                                <svg class="animate-spin h-3.5 w-3.5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                <svg class="animate-spin h-3.5 w-3.5 shrink-0" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                                     <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
                                     <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                                 </svg>
@@ -264,7 +266,7 @@
                         </template>
                         <template x-if="savingState === 'saved'">
                             <span class="flex items-center gap-1.5 text-emerald-600 dark:text-emerald-400">
-                                <svg class="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor">
+                                <svg class="h-3.5 w-3.5 shrink-0" viewBox="0 0 20 20" fill="currentColor">
                                     <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/>
                                 </svg>
                                 <span x-text="statusMessage || '{{ __('roster.sync_saved') }}'"></span>
@@ -272,7 +274,7 @@
                         </template>
                         <template x-if="savingState === 'error'">
                             <span class="flex items-center gap-1.5 text-red-600 dark:text-red-400">
-                                <svg class="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor">
+                                <svg class="h-3.5 w-3.5 shrink-0" viewBox="0 0 20 20" fill="currentColor">
                                     <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clip-rule="evenodd"/>
                                 </svg>
                                 <span x-text="statusMessage || '{{ __('roster.sync_error') }}'"></span>
@@ -280,7 +282,7 @@
                         </template>
                         <template x-if="savingState === 'idle'">
                             <span class="flex items-center gap-1.5">
-                                <span class="h-1.5 w-1.5 rounded-full bg-emerald-500"></span>
+                                <span class="h-1.5 w-1.5 rounded-full bg-emerald-500 shrink-0"></span>
                                 <span>{{ __('roster.sync_idle') }}</span>
                             </span>
                         </template>
@@ -290,11 +292,11 @@
 
             <!-- Banner Peringatan Mode Karyawan (Jika Belum Dipublikasikan) -->
             @if ($actor->isUser() && $publishedCount === 0)
-                <div class="px-4 py-2 bg-amber-500/10 border-b border-amber-500/20 text-amber-800 dark:text-amber-300 text-xs flex items-center gap-2">
+                <div class="px-3 sm:px-4 py-2 bg-amber-500/10 border-b border-amber-500/20 text-amber-800 dark:text-amber-300 text-xs flex flex-wrap items-center gap-2 w-full">
                     <svg class="h-4 w-4 shrink-0 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                     </svg>
-                    <span>{{ __('roster.unpublished_notice') }}</span>
+                    <span class="min-w-0 flex-1">{{ __('roster.unpublished_notice') }}</span>
                 </div>
             @endif
 
@@ -635,18 +637,18 @@
                                                 </template>
                                             </template>
 
-                                            <!-- 2. Daftar Jadwal yang Dimulai pada Tanggal D (Mendukung Multi-Shift per Hari) -->
+                                            <!-- 2. Daftar Jadwal yang Dimulai pada Tanggal D (Mendukung Multi-Shift per Hari & Split Shift) -->
                                             <template x-for="sched in getSchedules({{ $emp->id }}, '{{ $d['date'] }}')" :key="sched.id">
-                                                <div class="relative h-10 w-full">
+                                                <div x-data="{ get schedule() { return sched; } }" class="relative h-10 w-full">
                                                     <div :data-schedule-id="sched.id"
                                                          :data-schedule-uuid="sched.uuid"
                                                          :data-employee-id="{{ $emp->id }}"
                                                          :data-date="'{{ $d['date'] }}'"
                                                          @if ($canEdit)
-                                                             @click="if (sched.status === 'pending_delete') { restoreScheduleById({{ $emp->id }}, '{{ $d['date'] }}', sched.id, $event); }"
+                                                             @click="if ($el.dataset.justSlid === '1') return; if (sched.status === 'pending_delete') { restoreScheduleById({{ $emp->id }}, '{{ $d['date'] }}', sched.id, $event); } else if (!sched.is_off) { toggleScheduleMenu(sched.id, $event); }"
                                                          @endif
                                                          :title="sched.status === 'pending_delete' ? '{{ __('roster.pending_delete_badge') }}' : (sched.shift_name + ' (' + formatTimeShort(sched.effective_start_time) + ' – ' + formatTimeShort(sched.effective_end_time) + ')')"
-                                                         class="o-shift-pill o-shift-pill-resizable group/pill absolute top-0 bottom-0 rounded-md px-1.5 py-0.5 flex flex-col justify-between overflow-hidden transition-all duration-300 ease-in-out hover:z-20"
+                                                         class="o-shift-pill o-shift-pill-resizable group group/pill absolute top-0 bottom-0 rounded-md px-1.5 py-0.5 flex flex-col justify-between overflow-hidden transition-all duration-300 ease-in-out hover:z-20 touch-none"
                                                          :class="[
                                                              sched.status === 'pending_delete'
                                                                  ? 'opacity-30 dark:opacity-20 line-through grayscale border border-dashed border-red-500 bg-red-500/10 pointer-events-auto text-red-700 dark:text-red-300 cursor-pointer'
@@ -664,10 +666,25 @@
                                                                  @click.stop
                                                                  class="o-resize-handle-left absolute inset-y-0 left-0 w-2 cursor-ew-resize hover:bg-white/40 rounded-l transition-colors z-20"
                                                                  title="{{ __('roster.resize_left_tooltip') }}"></div>
+
+                                                            <!-- Split Shift Trigger Handle (Titik Tengah Balok) -->
+                                                            <div x-show="sched.status !== 'pending_delete' && !sched.is_off"
+                                                                 class="absolute inset-y-0 left-1/2 -translate-x-1/2 w-3 flex items-center justify-center opacity-0 group-hover:opacity-100 hover:opacity-100 transition-opacity cursor-col-resize z-20"
+                                                                 @click.stop="splitSchedule(schedule.id)"
+                                                                 title="{{ __('roster.action_split_shift') }}">
+                                                                <div class="h-3/4 w-0.5 bg-white/80 dark:bg-zinc-200 border-x border-zinc-950/20 rounded-full"></div>
+                                                            </div>
                                                         @endif
 
+                                                        <!-- Badge Akumulasi Durasi Jam di Sudut Kanan Atas Balok Shift -->
+                                                        <span x-show="!sched.is_off"
+                                                              :class="canEdit && sched.status !== 'pending_delete' ? 'group-hover/pill:opacity-0' : ''"
+                                                              class="absolute top-0.5 right-1 text-3xs font-bold opacity-75 dark:opacity-90 leading-none pointer-events-none select-none"
+                                                              x-text="getScheduleDurationHours(sched) + 'h'">
+                                                        </span>
+
                                                         <!-- Baris Atas Balok: Titik Draft / Badge Pending Delete + Kode Shift + Tombol Hapus / Undo -->
-                                                        <div class="flex items-center justify-between gap-1 w-full pointer-events-none">
+                                                        <div class="flex items-center justify-between gap-1 w-full pr-4 pointer-events-none">
                                                             <div class="flex items-center gap-1 min-w-0">
                                                                 <template x-if="sched.status === 'draft'">
                                                                     <span class="h-1.5 w-1.5 rounded-full bg-amber-400 ring-1 ring-black/30 shrink-0"
@@ -690,34 +707,53 @@
                                                                     <span class="text-[8px] font-mono px-0.5 rounded bg-black/30 text-white/90 leading-tight">{{ __('roster.cross_day_badge') }}</span>
                                                                 </template>
                                                             </div>
-
-                                                            @if ($canEdit)
-                                                                <template x-if="sched.status !== 'pending_delete'">
-                                                                    <button type="button"
-                                                                            @click.stop="removeScheduleById({{ $emp->id }}, '{{ $d['date'] }}', sched.id, $event)"
-                                                                            title="{{ __('roster.remove_shift') }}"
-                                                                            class="opacity-0 group-hover/pill:opacity-100 hover:bg-black/40 p-0.5 rounded text-white/90 hover:text-white pointer-events-auto transition-opacity -mr-0.5 -mt-0.5 cursor-pointer">
-                                                                        <svg class="h-3 w-3" viewBox="0 0 20 20" fill="currentColor">
-                                                                            <path fill-rule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clip-rule="evenodd"/>
-                                                                        </svg>
-                                                                    </button>
-                                                                </template>
-                                                                <template x-if="sched.status === 'pending_delete'">
-                                                                    <button type="button"
-                                                                            @click.stop="restoreScheduleById({{ $emp->id }}, '{{ $d['date'] }}', sched.id, $event)"
-                                                                            title="{{ __('roster.undo_delete') }}"
-                                                                            class="px-1 rounded bg-red-500/20 text-red-700 dark:text-red-300 pointer-events-auto text-[10px] font-bold leading-none cursor-pointer">
-                                                                        ↺
-                                                                    </button>
-                                                                </template>
-                                                            @endif
                                                         </div>
+
+                                                        @if ($canEdit)
+                                                            <template x-if="sched.status !== 'pending_delete'">
+                                                                <button type="button"
+                                                                        @click.stop="removeScheduleById({{ $emp->id }}, '{{ $d['date'] }}', sched.id, $event)"
+                                                                        title="{{ __('roster.remove_shift') }}"
+                                                                        class="absolute top-0.5 right-0.5 z-30 opacity-0 group-hover/pill:opacity-100 hover:bg-black/40 p-0.5 rounded text-white/90 hover:text-white pointer-events-auto transition-opacity cursor-pointer">
+                                                                    <svg class="h-3 w-3" viewBox="0 0 20 20" fill="currentColor">
+                                                                        <path fill-rule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clip-rule="evenodd"/>
+                                                                    </svg>
+                                                                </button>
+                                                            </template>
+                                                            <template x-if="sched.status === 'pending_delete'">
+                                                                <button type="button"
+                                                                        @click.stop="restoreScheduleById({{ $emp->id }}, '{{ $d['date'] }}', sched.id, $event)"
+                                                                        title="{{ __('roster.undo_delete') }}"
+                                                                        class="absolute top-0.5 right-0.5 z-30 px-1 rounded bg-red-500/20 text-red-700 dark:text-red-300 pointer-events-auto text-[10px] font-bold leading-none cursor-pointer">
+                                                                    ↺
+                                                                </button>
+                                                            </template>
+                                                        @endif
 
                                                         <!-- Baris Bawah Balok: Rentang Waktu Efektif -->
                                                         <div class="flex items-center justify-between text-[9px] font-mono leading-none opacity-90 pointer-events-none">
                                                             <span x-text="sched.is_off ? '{{ __('roster.day_off_short') }}' : formatTimeShort(sched.effective_start_time)"></span>
                                                             <span x-text="sched.is_off ? '{{ __('common.dp_badge') }}' : (expandedDate === '{{ $d['date'] }}' && isCrossDaySchedule(sched) ? '24:00→' : formatTimeShort(sched.effective_end_time))"></span>
                                                         </div>
+
+                                                        <!-- Popover Interaksi Cepat Mobile/Touch (Split Shift & Hapus) -->
+                                                        @if ($canEdit)
+                                                            <div x-cloak
+                                                                 x-show="activeScheduleMenuId === sched.id && sched.status !== 'pending_delete' && !sched.is_off"
+                                                                 @click.away="if (activeScheduleMenuId === sched.id) activeScheduleMenuId = null"
+                                                                 class="absolute inset-x-0.5 bottom-0.5 z-30 flex items-center justify-center gap-1 rounded bg-zinc-950/90 px-1 py-0.5 text-[9px] font-bold text-white shadow-lg sm:hidden">
+                                                                <button type="button"
+                                                                        @click.stop="splitSchedule(schedule.id)"
+                                                                        class="px-1.5 py-0.5 rounded bg-accent text-accent-fg cursor-pointer whitespace-nowrap">
+                                                                    {{ __('roster.action_split_shift') }}
+                                                                </button>
+                                                                <button type="button"
+                                                                        @click.stop="removeScheduleById({{ $emp->id }}, '{{ $d['date'] }}', sched.id, $event)"
+                                                                        class="px-1 py-0.5 rounded bg-red-600 text-white cursor-pointer">
+                                                                    ×
+                                                                </button>
+                                                            </div>
+                                                        @endif
 
                                                         <!-- Handle Resize Sisi Kanan (InteractJS) -->
                                                         @if ($canEdit)

@@ -13,6 +13,7 @@ use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Gate;
 use Illuminate\Validation\Rule;
 use Illuminate\View\View;
 
@@ -647,6 +648,114 @@ class RosterController extends Controller
         return response()->json([
             'message' => __('roster.resized_successfully'),
             'schedule' => $schedule->toMatrixPayload(),
+        ]);
+    }
+
+    /**
+     * Split an active work schedule into two equal-half sessions on the same date.
+     * Enforces strict immutability of total hours (Duration_1 + Duration_2 = Duration_original)
+     * and marks both resulting schedules as 'draft'.
+     */
+    public function split(Request $request, string $workSchedule): JsonResponse
+    {
+        $actor = $request->user();
+        if (! $this->canMutateRoster($actor)) {
+            abort(403, 'Anda tidak memiliki izin untuk membelah jadwal shift.');
+        }
+
+        $schedule = WorkSchedule::withoutGlobalScopes()
+            ->where(is_numeric($workSchedule) ? 'id' : 'uuid', $workSchedule)
+            ->with([
+                'shift' => fn ($q) => $q->withoutGlobalScopes(),
+                'dutyTag' => fn ($q) => $q->withoutGlobalScopes(),
+            ])
+            ->firstOrFail();
+
+        $employee = Employee::withoutGlobalScopes()->findOrFail($schedule->employee_id);
+        $this->authorizeEmployeeMutation($actor, $employee);
+        Gate::forUser($actor)->authorize('split', $schedule);
+
+        if ($schedule->isOff() || $schedule->status === 'pending_delete') {
+            return response()->json([
+                'message' => __('roster.sync_error'),
+            ], 422);
+        }
+
+        $originalStartTime = $schedule->getEffectiveStartTime();
+        $originalEndTime = $schedule->getEffectiveEndTime();
+
+        if ($originalStartTime === '' || $originalEndTime === '') {
+            return response()->json([
+                'message' => __('roster.sync_error'),
+            ], 422);
+        }
+
+        $startDt = Carbon::createFromFormat('H:i:s', $originalStartTime, 'Asia/Jakarta');
+        $endDt = Carbon::createFromFormat('H:i:s', $originalEndTime, 'Asia/Jakarta');
+        if ($endDt->lessThanOrEqualTo($startDt)) {
+            $endDt->addDay();
+        }
+
+        $totalSeconds = (int) round($startDt->diffInSeconds($endDt));
+        $halfSeconds = intdiv($totalSeconds, 2);
+        $midTime = $startDt->copy()->addSeconds($halfSeconds)->format('H:i:s');
+
+        $secondSchedule = null;
+
+        DB::transaction(function () use ($schedule, $actor, $originalStartTime, $originalEndTime, $midTime, &$secondSchedule): void {
+            $publishedStart = $schedule->published_start_time;
+            $publishedEnd = $schedule->published_end_time;
+            if ($schedule->status === 'published' && empty($publishedStart) && empty($publishedEnd)) {
+                $publishedStart = $originalStartTime;
+                $publishedEnd = $originalEndTime;
+            }
+
+            $schedule->update([
+                'custom_start_time' => $originalStartTime,
+                'custom_end_time' => $midTime,
+                'published_start_time' => $publishedStart,
+                'published_end_time' => $publishedEnd,
+                'status' => 'draft',
+            ]);
+
+            $secondSchedule = WorkSchedule::withoutGlobalScopes()->create([
+                'company_id' => $schedule->company_id,
+                'employee_id' => $schedule->employee_id,
+                'shift_id' => $schedule->shift_id,
+                'duty_tag_id' => $schedule->duty_tag_id,
+                'schedule_date' => $schedule->schedule_date instanceof \Carbon\CarbonInterface
+                    ? $schedule->schedule_date->toDateString()
+                    : (string) $schedule->schedule_date,
+                'custom_start_time' => $midTime,
+                'custom_end_time' => $originalEndTime,
+                'status' => 'draft',
+                'notes' => $schedule->notes,
+                'created_by' => $actor->id,
+            ]);
+        });
+
+        $schedule->load([
+            'shift' => fn ($q) => $q->withoutGlobalScopes(),
+            'dutyTag' => fn ($q) => $q->withoutGlobalScopes(),
+        ]);
+        $secondSchedule->load([
+            'shift' => fn ($q) => $q->withoutGlobalScopes(),
+            'dutyTag' => fn ($q) => $q->withoutGlobalScopes(),
+        ]);
+
+        $firstPayload = $schedule->toMatrixPayload();
+        $secondPayload = $secondSchedule->toMatrixPayload();
+
+        return response()->json([
+            'message' => __('roster.split_success'),
+            'schedules' => [
+                $firstPayload,
+                $secondPayload,
+            ],
+            'original_schedule' => $firstPayload,
+            'new_schedule' => $secondPayload,
+            'first_schedule' => $firstPayload,
+            'second_schedule' => $secondPayload,
         ]);
     }
 

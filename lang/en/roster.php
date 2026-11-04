@@ -101,4 +101,6 @@ return [
     'modal_discard_desc'            => 'All newly drafted schedules will be deleted and schedules marked for deletion will be restored.',
     'btn_confirm_discard'           => 'Yes, Discard Drafts',
     'discard_success'               => 'All drafted changes discarded successfully.',
+    'action_split_shift'            => 'Split Shift',
+    'split_success'                 => 'Shift successfully split into 2 schedules.',
 ];
