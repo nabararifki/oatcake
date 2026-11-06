@@ -12,7 +12,8 @@ class DepartmentPolicy
      */
     public function viewAny(User $user): bool
     {
-        return $user->company_id !== null;
+        return $user->isSuperAdmin()
+            || ($user->company_id !== null && $user->isManagerOrAbove());
     }
 
     /**
@@ -20,8 +21,10 @@ class DepartmentPolicy
      */
     public function view(User $user, Department $department): bool
     {
-        return $user->company_id !== null
-            && (int) $user->company_id === (int) $department->company_id;
+        return $user->isSuperAdmin()
+            || ($user->company_id !== null
+                && (int) $user->company_id === (int) $department->company_id
+                && $user->isManagerOrAbove());
     }
 
     /**
@@ -29,8 +32,9 @@ class DepartmentPolicy
      */
     public function create(User $user): bool
     {
-        return $user->company_id !== null
-            && ($user->isAdmin() || $user->isSuperUser());
+        return $user->isSuperAdmin()
+            || ($user->company_id !== null
+                && ($user->isAdmin() || $user->isSuperUser()));
     }
 
     /**
@@ -38,9 +42,10 @@ class DepartmentPolicy
      */
     public function update(User $user, Department $department): bool
     {
-        return $user->company_id !== null
-            && (int) $user->company_id === (int) $department->company_id
-            && ($user->isAdmin() || $user->isSuperUser());
+        return $user->isSuperAdmin()
+            || ($user->company_id !== null
+                && (int) $user->company_id === (int) $department->company_id
+                && ($user->isAdmin() || $user->isSuperUser()));
     }
 
     /**
@@ -48,8 +53,9 @@ class DepartmentPolicy
      */
     public function delete(User $user, Department $department): bool
     {
-        return $user->company_id !== null
-            && (int) $user->company_id === (int) $department->company_id
-            && ($user->isAdmin() || $user->isSuperUser());
+        return $user->isSuperAdmin()
+            || ($user->company_id !== null
+                && (int) $user->company_id === (int) $department->company_id
+                && ($user->isAdmin() || $user->isSuperUser()));
     }
 }

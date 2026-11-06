@@ -143,4 +143,20 @@ class User extends Authenticatable
     {
         return $this->role === 'user';
     }
+
+    /**
+     * Determine if the user holds an administrative role (admin, super_user, super_admin).
+     */
+    public function isAdminOrAbove(): bool
+    {
+        return in_array($this->role, ['super_admin', 'super_user', 'admin'], true);
+    }
+
+    /**
+     * Determine if the user holds a managerial or administrative role.
+     */
+    public function isManagerOrAbove(): bool
+    {
+        return in_array($this->role, ['super_admin', 'super_user', 'admin', 'manager'], true);
+    }
 }

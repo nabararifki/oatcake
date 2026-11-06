@@ -2,11 +2,14 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Attendance;
 use App\Models\Company;
 use App\Models\Department;
 use App\Models\Employee;
+use App\Models\PublicHoliday;
 use App\Models\User;
 use App\Models\WorkSchedule;
+use App\Services\AttendanceGeofenceService;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
@@ -16,6 +19,9 @@ use Illuminate\View\View;
 
 class DashboardController extends Controller
 {
+    public function __construct(
+        private readonly AttendanceGeofenceService $geofenceService
+    ) {}
     /**
      * Resolve today's cross-department work schedules for the active tenant company.
      * Regular users (role: user) only see 'published' schedules; Managers/Admins also see 'draft'.
@@ -123,14 +129,51 @@ class DashboardController extends Controller
     {
         $user = User::with([
             'company',
+            'employee.company',
             'employee.department',
             'employee.tags',
             'employee.manager.user',
         ])->findOrFail($request->user()->id);
 
-        $activeCompany = $user->isSuperAdmin() && session('active_company_id')
+        $isSuperAdmin = $user->isSuperAdmin();
+        $employee = $user->employee;
+
+        $activeCompany = $isSuperAdmin && session('active_company_id')
             ? Company::find(session('active_company_id'))
             : $user->company;
+
+        $company = $activeCompany ?? $employee?->company ?? $user->company;
+        $companyId = $company?->id;
+
+        $todayWib = today('Asia/Jakarta');
+        $nowWib = Carbon::now('Asia/Jakarta');
+        $isHoliday = PublicHoliday::isHoliday($todayWib, $companyId);
+
+        $todayAttendance = null;
+        $todaySchedule = null;
+        $todaySessionsState = null;
+
+        if (! $isSuperAdmin && $employee) {
+            $todayAttendance = Attendance::withoutGlobalScopes()
+                ->with(['workSchedule.shift'])
+                ->where('employee_id', $employee->id)
+                ->whereNotNull('clock_in_at')
+                ->whereNull('clock_out_at')
+                ->latest('clock_in_at')
+                ->first();
+
+            if (! $todayAttendance) {
+                $todayAttendance = Attendance::withoutGlobalScopes()
+                    ->with(['workSchedule.shift'])
+                    ->where('employee_id', $employee->id)
+                    ->whereDate('clock_in_at', $todayWib)
+                    ->latest('clock_in_at')
+                    ->first();
+            }
+
+            $todaySchedule = $this->geofenceService->resolveTodaySchedule($employee, $nowWib);
+            $todaySessionsState = $this->geofenceService->resolveTodaySessionsState($employee, $nowWib);
+        }
 
         $managerStats = null;
         $subordinates = collect();
@@ -232,7 +275,14 @@ class DashboardController extends Controller
 
         return view('dashboard', compact(
             'user',
+            'isSuperAdmin',
+            'employee',
+            'company',
             'activeCompany',
+            'todayAttendance',
+            'todaySchedule',
+            'todaySessionsState',
+            'isHoliday',
             'managerStats',
             'subordinates',
             'corporateStats',
@@ -287,7 +337,7 @@ class DashboardController extends Controller
 
         return redirect()
             ->route('dashboard')
-            ->with('status', 'Konteks perusahaan berhasil diperbarui.');
+            ->with('status', __('company.context_switched_successfully'));
     }
 
     /**

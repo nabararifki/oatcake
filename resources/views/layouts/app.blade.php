@@ -77,7 +77,9 @@
     <body class="font-sans h-dvh w-screen w-full max-w-full overflow-hidden bg-surface text-ink antialiased">
         <!-- Unified Monolithic Outer Chrome Frame -->
         <div x-data="{ mobileMenuOpen: false }"
-             @keydown.escape.window="mobileMenuOpen = false"
+             x-init="$watch('mobileMenuOpen', val => { if ($store.ui) $store.ui.mobileDrawerOpen = val }); $watch('$store.ui.mobileDrawerOpen', val => { mobileMenuOpen = val })"
+             @mobile-drawer-change.window="mobileMenuOpen = $event.detail.open"
+             @keydown.escape.window="mobileMenuOpen = false; if ($store.ui) $store.ui.mobileDrawerOpen = false"
              class="h-dvh w-screen overflow-hidden flex flex-col bg-surface text-ink antialiased w-full max-w-full">
             <!-- Top Accent Hairline -->
             <div class="h-0.5 w-full shrink-0" style="background-color: var(--primary-accent);"></div>

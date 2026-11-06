@@ -18,14 +18,14 @@ class CompanyScope implements Scope
 
             if (method_exists($user, 'isSuperAdmin') && $user->isSuperAdmin()) {
                 if (session()->has('active_company_id') && session('active_company_id') !== null) {
-                    $builder->where('company_id', session('active_company_id'));
+                    $builder->where($model->qualifyColumn('company_id'), session('active_company_id'));
                 }
 
                 return;
             }
 
             if ($user->company_id !== null) {
-                $builder->where('company_id', $user->company_id);
+                $builder->where($model->qualifyColumn('company_id'), $user->company_id);
             } else {
                 $builder->whereRaw('1 = 0');
             }

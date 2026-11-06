@@ -21,7 +21,7 @@ class CompanyPolicy
     public function view(User $user, Company $company): bool
     {
         return $user->isSuperAdmin()
-            || ($user->isSuperUser() && (int) $user->company_id === (int) $company->id);
+            || (($user->isSuperUser() || $user->isAdmin()) && (int) $user->company_id === (int) $company->id);
     }
 
     /**
@@ -38,7 +38,7 @@ class CompanyPolicy
     public function update(User $user, Company $company): bool
     {
         return $user->isSuperAdmin()
-            || ($user->isSuperUser() && (int) $user->company_id === (int) $company->id);
+            || (($user->isSuperUser() || $user->isAdmin()) && (int) $user->company_id === (int) $company->id);
     }
 
     /**

@@ -1,6 +1,10 @@
 <?php
 
+use App\Http\Controllers\AttendanceController;
+use App\Http\Controllers\AttendanceVerificationController;
+use App\Http\Controllers\CompanySettingsController;
 use App\Http\Controllers\DashboardController;
+use App\Http\Controllers\DepartmentController;
 use App\Http\Controllers\LocaleController;
 use App\Http\Controllers\PreferenceController;
 use App\Http\Controllers\ProfileController;
@@ -48,8 +52,36 @@ Route::middleware('auth')->group(function () {
     Route::post('/roster/shifts', [RosterController::class, 'storeShift'])->name('roster.shifts.store');
     Route::put('/roster/shifts/{shift}', [RosterController::class, 'updateShift'])->name('roster.shifts.update');
 
-    Route::get('/departments', [DashboardController::class, 'departments'])->name('departments.index');
-    Route::get('/company/settings', [DashboardController::class, 'companySettings'])->name('company.settings');
+    Route::get('/attendance', [AttendanceController::class, 'index'])->name('attendance.index');
+    Route::post('/attendance/clock-in', [AttendanceController::class, 'clockIn'])->name('attendance.clockIn');
+    Route::post('/attendance/outside-clock-in', [AttendanceController::class, 'clockInOutside'])->name('attendance.clockInOutside');
+    Route::post('/attendance/clock-out', [AttendanceController::class, 'clockOut'])->name('attendance.clockOut');
+    Route::get('/attendance/verifications', [AttendanceVerificationController::class, 'index'])->name('attendance.verifications.index');
+    Route::post('/attendance/verifications/{attendance}/approve', [AttendanceVerificationController::class, 'approve'])->name('attendance.verifications.approve');
+    Route::post('/attendance/verifications/{attendance}/reject', [AttendanceVerificationController::class, 'reject'])->name('attendance.verifications.reject');
+    Route::put('/attendance/{attendance}', [AttendanceController::class, 'update'])->name('attendance.update');
+    Route::delete('/attendance/{attendance}', [AttendanceController::class, 'destroy'])->name('attendance.destroy');
+    Route::get('/attendance/{attendance}/proof', [AttendanceVerificationController::class, 'streamProofPhoto'])->name('attendance.proof');
+
+    Route::get('/departments', [DepartmentController::class, 'index'])->name('departments.index');
+    Route::post('/departments', [DepartmentController::class, 'store'])->name('departments.store');
+    Route::put('/departments/{department}', [DepartmentController::class, 'update'])->name('departments.update');
+    Route::patch('/departments/{department}', [DepartmentController::class, 'update']);
+    Route::delete('/departments/{department}', [DepartmentController::class, 'destroy'])->name('departments.destroy');
+
+    Route::get('/settings/company', [CompanySettingsController::class, 'edit'])->name('settings.company');
+    Route::get('/settings/company/edit', [CompanySettingsController::class, 'edit'])->name('settings.company.edit');
+    Route::put('/settings/company', [CompanySettingsController::class, 'update'])->name('settings.company.update');
+    Route::patch('/settings/company', [CompanySettingsController::class, 'update']);
+    Route::post('/settings/company', [CompanySettingsController::class, 'update']);
+    Route::put('/settings/company/{company}', [CompanySettingsController::class, 'update'])->name('settings.company.update.tenant');
+    Route::patch('/settings/company/{company}', [CompanySettingsController::class, 'update']);
+
+    Route::get('/company/settings', [CompanySettingsController::class, 'edit'])->name('company.settings');
+    Route::put('/company/settings', [CompanySettingsController::class, 'update'])->name('company.settings.update');
+    Route::patch('/company/settings', [CompanySettingsController::class, 'update']);
+
+    Route::post('/admin/companies', [CompanySettingsController::class, 'store'])->name('admin.companies.store');
     Route::post('/company/switch', [DashboardController::class, 'switchCompany'])->name('company.switch');
 });
 

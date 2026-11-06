@@ -229,6 +229,11 @@ class DashboardScheduleTest extends TestCase
         $userHtmlResponse = $this->actingAs($fixture['hkStaffUser'])->get(route('dashboard'));
         $userHtmlResponse->assertOk()
             ->assertSee('today-schedules-modal', escape: false)
+            ->assertSee('rounded-2xl border border-line bg-surface overflow-hidden', escape: false)
+            ->assertSee('w-full max-h-[65dvh] overflow-x-auto overflow-y-auto overscroll-x-contain overscroll-y-contain rounded-2xl', escape: false)
+            ->assertSee('min-w-[720px] sm:min-w-[860px] relative rounded-2xl bg-surface flex flex-col', escape: false)
+            ->assertSee('sticky left-0 z-20 w-36 sm:w-48 shrink-0 bg-surface-muted border-r border-line shadow-[2px_0_6px_-2px_rgba(0,0,0,0.08)] px-3 py-1.5 text-2xs font-bold text-ink-muted uppercase tracking-wider truncate', escape: false)
+            ->assertSee('sticky left-0 z-20 w-36 sm:w-48 shrink-0 bg-surface border-r border-line shadow-[2px_0_6px_-2px_rgba(0,0,0,0.08)]', escape: false)
             ->assertSee(__('dashboard.btn_view_today_schedule'))
             ->assertSee(__('dashboard.modal_today_title'))
             ->assertSee('00:00')

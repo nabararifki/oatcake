@@ -5,6 +5,8 @@ return [
     'loading'                       => 'Loading...',
     'save'                          => 'Save',
     'cancel'                        => 'Cancel',
+    'close'                         => 'Close',
+    'confirm'                       => 'Confirm',
     'edit'                          => 'Edit',
     'delete'                        => 'Delete',
     'search'                        => 'Search...',

@@ -141,4 +141,12 @@ class Employee extends Model
     {
         return $this->hasMany(WorkSchedule::class);
     }
+
+    /**
+     * Get the attendance records for the employee.
+     */
+    public function attendances(): HasMany
+    {
+        return $this->hasMany(Attendance::class);
+    }
 }

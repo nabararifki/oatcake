@@ -18,7 +18,7 @@ class CompanySeeder extends Seeder
                 'name' => 'Novotel Yogyakarta International Airport Kulon Progo',
                 'latitude' => '-7.9048250',
                 'longitude' => '110.0572110',
-                'geofence_radius_meters' => 150,
+                'geofence_radius_meters' => 100,
                 'accent_color' => '#004F9F',
                 'is_active' => true,
             ]

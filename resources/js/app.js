@@ -2,10 +2,25 @@ import './bootstrap';
 
 import Alpine from 'alpinejs';
 import collapse from '@alpinejs/collapse';
+import L from 'leaflet';
+import 'leaflet/dist/leaflet.css';
+import markerIcon2xUrl from 'leaflet/dist/images/marker-icon-2x.png';
+import markerIconUrl from 'leaflet/dist/images/marker-icon.png';
+import markerShadowUrl from 'leaflet/dist/images/marker-shadow.png';
 import { registerRosterMatrix } from './roster';
+import { registerMobileDrawerSwipe } from './mobile-drawer';
+
+delete L.Icon.Default.prototype._getIconUrl;
+L.Icon.Default.mergeOptions({
+    iconRetinaUrl: markerIcon2xUrl,
+    iconUrl: markerIconUrl,
+    shadowUrl: markerShadowUrl,
+});
+window.L = L;
 
 Alpine.plugin(collapse);
 registerRosterMatrix(Alpine);
+registerMobileDrawerSwipe(Alpine);
 
 const resolveThemeDark = (mode) =>
     mode === 'dark' || (mode !== 'light' && window.matchMedia('(prefers-color-scheme: dark)').matches);

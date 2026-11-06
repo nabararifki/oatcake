@@ -35,7 +35,7 @@
     aria-modal="true"
     @if ($title) aria-labelledby="{{ $titleId }}" @endif
     {{ $attributes->merge([
-        'class' => "o-modal z-modal m-0 mt-auto w-full max-w-full p-0 bg-transparent border-0 outline-none sm:m-auto sm:modal-middle {$maxWidthClass} backdrop:bg-zinc-950/50 backdrop:backdrop-blur-[2px]",
+        'class' => "o-modal z-modal m-3 sm:m-auto w-[calc(100%-1.5rem)] sm:w-full max-w-full max-h-[90vh] p-0 bg-transparent border-0 outline-none sm:modal-middle {$maxWidthClass} backdrop:bg-zinc-950/50 backdrop:backdrop-blur-[2px]",
     ]) }}
 >
     <div
@@ -46,7 +46,7 @@
         x-transition:leave="transition ease-in duration-150"
         x-transition:leave-start="translate-y-0 sm:scale-100 opacity-100"
         x-transition:leave-end="translate-y-4 sm:translate-y-0 sm:scale-95 opacity-0"
-        class="w-full bg-surface-raised text-ink border border-line-strong rounded-t-xl sm:rounded-xl shadow-lg p-5 flex flex-col gap-4 overflow-hidden"
+        class="w-full max-h-[90vh] bg-surface-raised text-ink border border-line-strong rounded-2xl sm:rounded-3xl shadow-lg p-5 flex flex-col gap-4 overflow-hidden"
     >
         @if ($title || ! $persistent)
             <div class="flex items-center justify-between gap-4 border-b border-line pb-3">

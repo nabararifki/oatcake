@@ -18,6 +18,9 @@ export function registerRosterMatrix(Alpine) {
         year: Number(config.year || 2026),
         selectedDepartmentId: config.selectedDepartmentId || null,
         crossDayBadgeLabel: config.crossDayBadgeLabel || '+1h',
+        __trans: config.__trans || {
+            action_split_shift: config.i18n?.actionSplitShift || 'Belah Shift',
+        },
         i18n: config.i18n || {},
 
         // UI Enhancements State (Expandable 24h Day Timeline & Collapsible Staff Column)
@@ -38,10 +41,9 @@ export function registerRosterMatrix(Alpine) {
             color_badge: '#3B82F6',
         },
 
-        // Native HTML5 Drag-and-Drop & Mobile Touch-Drag State
+        // Native HTML5 Drag-and-Drop & Mobile Touch-Drag State (Strict Drag-Only)
         dragPayload: null,
         activeTouchShift: null,
-        touchSelectedShift: null,
         touchDragPreviewEl: null,
         touchStartCoords: { x: 0, y: 0, moved: false },
         touchHoverCell: null,
@@ -60,6 +62,7 @@ export function registerRosterMatrix(Alpine) {
         savingState: 'idle', // 'idle' | 'saving' | 'saved' | 'error'
         statusMessage: '',
         activeScheduleMenuId: null,
+        selectedSchedule: null,
 
         turnaroundModal: {
             open: false,
@@ -275,6 +278,18 @@ export function registerRosterMatrix(Alpine) {
             }
             if (!this.canEdit) return;
             this.activeScheduleMenuId = this.activeScheduleMenuId === scheduleId ? null : scheduleId;
+            if (this.activeScheduleMenuId) {
+                const ctx = this.findScheduleContextById(scheduleId);
+                this.selectedSchedule = ctx ? ctx.existing : null;
+            } else {
+                this.selectedSchedule = null;
+            }
+        },
+
+        getSelectedEmployeeName() {
+            if (!this.selectedSchedule) return '-';
+            const emp = this.employees.find((e) => Number(e.id) === Number(this.selectedSchedule.employee_id));
+            return emp?.name || '-';
         },
 
         getOvernightCarryovers(empId, dateStr) {
@@ -520,6 +535,10 @@ export function registerRosterMatrix(Alpine) {
 
                 this.recalculateCounts();
                 this.recalculateModAudit(dateStr);
+                if (this.selectedSchedule && Number(this.selectedSchedule.id) === Number(existing.id)) {
+                    this.selectedSchedule = null;
+                }
+                this.activeScheduleMenuId = null;
                 this.savingState = 'saved';
                 this.statusMessage = response.data.message || this.i18n.deleted || '';
             } catch (error) {
@@ -561,6 +580,10 @@ export function registerRosterMatrix(Alpine) {
 
                 this.recalculateCounts();
                 this.recalculateModAudit(dateStr);
+                if (this.selectedSchedule && Number(this.selectedSchedule.id) === Number(existing.id)) {
+                    this.selectedSchedule = null;
+                }
+                this.activeScheduleMenuId = null;
                 this.savingState = 'saved';
                 this.statusMessage = response.data.message || this.i18n.restored || '';
             } catch (error) {
@@ -571,8 +594,10 @@ export function registerRosterMatrix(Alpine) {
 
         async resizeSchedule(empId, dateStr, scheduleId, newStartTime, newEndTime) {
             if (!this.canEdit) return;
+            if (this.expandedDate !== dateStr) return;
             const existing = this.getScheduleById(empId, dateStr, scheduleId);
             if (!existing || !existing.id || existing.is_off || existing.status === 'pending_delete') return;
+            if (this.expandedDate !== (existing.schedule_date || dateStr)) return;
 
             this.savingState = 'saving';
             const url = this.resizeUrlTemplate.replace('__ID__', existing.uuid || existing.id);
@@ -601,6 +626,10 @@ export function registerRosterMatrix(Alpine) {
 
                 this.recalculateCounts();
                 this.recalculateModAudit(dateStr);
+                if (this.selectedSchedule && Number(this.selectedSchedule.id) === Number(existing.id)) {
+                    this.selectedSchedule = null;
+                }
+                this.activeScheduleMenuId = null;
                 this.savingState = 'saved';
                 this.statusMessage = response.data.message || this.i18n.resized || '';
             } catch (error) {
@@ -646,6 +675,7 @@ export function registerRosterMatrix(Alpine) {
             }
 
             if (!existing || !existing.id || existing.is_off || existing.status === 'pending_delete') return;
+            if (this.expandedDate !== (existing.schedule_date || resolvedDateStr)) return;
 
             this.savingState = 'saving';
             this.activeScheduleMenuId = null;
@@ -676,6 +706,9 @@ export function registerRosterMatrix(Alpine) {
 
                 this.recalculateCounts();
                 this.recalculateModAudit(resolvedDateStr);
+                if (this.selectedSchedule && Number(this.selectedSchedule.id) === Number(existing.id)) {
+                    this.selectedSchedule = null;
+                }
                 this.savingState = 'saved';
                 this.statusMessage = response.data.message || this.i18n.splitSuccess || '';
             } catch (error) {
@@ -952,14 +985,8 @@ export function registerRosterMatrix(Alpine) {
         },
 
         /**
-         * Mobile Touch-Drag & Touch-Tap Assignment Engine
+         * Mobile Touch-Drag Assignment Engine (Strict Drag-Only — No Tap-to-Assign)
          */
-        isTouchSelected(shiftId, isOff = false) {
-            if (!this.touchSelectedShift) return false;
-            if (isOff) return Boolean(this.touchSelectedShift.is_off);
-            return !this.touchSelectedShift.is_off && Number(this.touchSelectedShift.id) === Number(shiftId);
-        },
-
         removeTouchDragPreview() {
             if (this.touchDragPreviewEl && this.touchDragPreviewEl.parentNode) {
                 this.touchDragPreviewEl.parentNode.removeChild(this.touchDragPreviewEl);
@@ -1025,7 +1052,7 @@ export function registerRosterMatrix(Alpine) {
 
             const hoverTarget = document
                 .elementFromPoint(touch.clientX, touch.clientY)
-                ?.closest('[data-employee-id][data-date]');
+                ?.closest('.o-roster-cell[data-employee-id][data-date]');
 
             if (this.touchDragPreviewEl) {
                 this.touchDragPreviewEl.style.display = '';
@@ -1053,12 +1080,12 @@ export function registerRosterMatrix(Alpine) {
                 this.touchDragPreviewEl.style.display = 'none';
             }
 
-            if (touch) {
+            if (touch && this.touchStartCoords.moved) {
                 const dropTarget = document
                     .elementFromPoint(touch.clientX, touch.clientY)
-                    ?.closest('[data-employee-id][data-date]');
+                    ?.closest('.o-roster-cell[data-employee-id][data-date]');
 
-                if (dropTarget && this.touchStartCoords.moved) {
+                if (dropTarget) {
                     const employeeId = Number(dropTarget.dataset.employeeId);
                     const dateStr = dropTarget.dataset.date;
                     if (employeeId && dateStr) {
@@ -1069,34 +1096,12 @@ export function registerRosterMatrix(Alpine) {
                             false,
                             Boolean(this.activeTouchShift.is_off)
                         );
-                        this.touchSelectedShift = null;
                     }
-                } else if (!this.touchStartCoords.moved) {
-                    // Opsi Touch-Tap Alternative untuk layar sentuh mobile
-                    const isSame =
-                        this.touchSelectedShift &&
-                        this.touchSelectedShift.code === this.activeTouchShift.code &&
-                        Boolean(this.touchSelectedShift.is_off) === Boolean(this.activeTouchShift.is_off);
-                    this.touchSelectedShift = isSame ? null : { ...this.activeTouchShift };
                 }
             }
 
             this.removeTouchDragPreview();
             this.activeTouchShift = null;
-        },
-
-        handleCellTouchEnd(event, empId, dateStr) {
-            if (!this.canEdit || !this.touchSelectedShift) return;
-            if (event.target?.closest('button, .o-resize-handle-left, .o-resize-handle-right')) {
-                return;
-            }
-            this.assignShift(
-                empId,
-                dateStr,
-                this.touchSelectedShift.is_off ? null : this.touchSelectedShift.id,
-                false,
-                Boolean(this.touchSelectedShift.is_off)
-            );
         },
 
         /**
@@ -1232,14 +1237,15 @@ export function registerRosterMatrix(Alpine) {
 
             interact('.o-shift-pill-resizable').resizable({
                 edges: {
-                    left: '.o-resize-handle-left',
-                    right: '.o-resize-handle-right',
+                    left: '.o-resize-handle-left, .resize-handle-left',
+                    right: '.o-resize-handle-right, .resize-handle-right',
                 },
                 listeners: {
                     start(event) {
                         const target = event.target;
                         const empId = Number(target.dataset.employeeId);
                         const dateStr = target.dataset.date;
+                        if (self.expandedDate !== dateStr) return;
                         const scheduleId = Number(target.dataset.scheduleId);
                         const sched = self.getScheduleById(empId, dateStr, scheduleId);
                         if (!sched || sched.is_off || sched.status === 'pending_delete') return;
@@ -1259,6 +1265,7 @@ export function registerRosterMatrix(Alpine) {
                         const target = event.target;
                         const empId = Number(target.dataset.employeeId);
                         const dateStr = target.dataset.date;
+                        if (self.expandedDate !== dateStr) return;
                         const scheduleId = Number(target.dataset.scheduleId);
                         const sched = self.getScheduleById(empId, dateStr, scheduleId);
                         if (!sched || sched.is_off || sched.status === 'pending_delete') return;
@@ -1308,6 +1315,7 @@ export function registerRosterMatrix(Alpine) {
 
                         const empId = Number(target.dataset.employeeId);
                         const dateStr = target.dataset.date;
+                        if (self.expandedDate !== dateStr) return;
                         const scheduleId = Number(target.dataset.scheduleId);
                         const newStart = target.dataset.previewStart;
                         const newEnd = target.dataset.previewEnd;
@@ -1322,12 +1330,13 @@ export function registerRosterMatrix(Alpine) {
                 },
             }).draggable({
                 lockAxis: 'x',
-                ignoreFrom: '.o-resize-handle-left, .o-resize-handle-right, .cursor-col-resize, button',
+                ignoreFrom: '.o-resize-handle-left, .o-resize-handle-right, .resize-handle-left, .resize-handle-right, .cursor-col-resize, button',
                 listeners: {
                     start(event) {
                         const target = event.target;
                         const empId = Number(target.dataset.employeeId);
                         const dateStr = target.dataset.date;
+                        if (self.expandedDate !== dateStr) return;
                         const scheduleId = Number(target.dataset.scheduleId);
                         const sched = self.getScheduleById(empId, dateStr, scheduleId);
                         if (!sched || sched.is_off || sched.status === 'pending_delete') return;
@@ -1356,6 +1365,7 @@ export function registerRosterMatrix(Alpine) {
                         const target = event.target;
                         const empId = Number(target.dataset.employeeId);
                         const dateStr = target.dataset.date;
+                        if (self.expandedDate !== dateStr) return;
                         const scheduleId = Number(target.dataset.scheduleId);
                         const sched = self.getScheduleById(empId, dateStr, scheduleId);
                         if (!sched || sched.is_off || sched.status === 'pending_delete') return;
@@ -1402,6 +1412,7 @@ export function registerRosterMatrix(Alpine) {
 
                         const empId = Number(target.dataset.employeeId);
                         const dateStr = target.dataset.date;
+                        if (self.expandedDate !== dateStr) return;
                         const scheduleId = Number(target.dataset.scheduleId);
                         const newStart = target.dataset.slidePreviewStart;
                         const newEnd = target.dataset.slidePreviewEnd;

@@ -5,6 +5,8 @@ return [
     'loading'                       => 'Memuat...',
     'save'                          => 'Simpan',
     'cancel'                        => 'Batal',
+    'close'                         => 'Tutup',
+    'confirm'                       => 'Konfirmasi',
     'edit'                          => 'Ubah',
     'delete'                        => 'Hapus',
     'search'                        => 'Cari...',

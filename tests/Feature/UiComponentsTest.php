@@ -91,6 +91,10 @@ class UiComponentsTest extends TestCase
         $this->assertStringContainsString('aria-labelledby="modal-title-shift-editor"', $html);
         $this->assertStringContainsString('id="modal-title-shift-editor"', $html);
         $this->assertStringContainsString('sm:max-w-lg', $html);
+        $this->assertStringContainsString('m-3 sm:m-auto', $html);
+        $this->assertStringContainsString('rounded-2xl sm:rounded-3xl', $html);
+        $this->assertStringNotContainsString('rounded-t-xl', $html);
+        $this->assertStringNotContainsString('rounded-b-none', $html);
         $this->assertStringContainsString('Modal Body Content', $html);
         $this->assertStringContainsString('$el.showModal()', $html);
     }

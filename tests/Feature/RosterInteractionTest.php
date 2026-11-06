@@ -649,4 +649,30 @@ class RosterInteractionTest extends TestCase
             ->assertJsonPath('schedule.duration_hours', 8)
             ->assertJsonPath('schedule.status', 'draft');
     }
+
+    /**
+     * Skenario 11: Halaman Roster menerapkan interaksi Drag-and-Drop Murni (HTML5 Drag & Drop + Mobile Touch-Drag)
+     * serta mengeliminasi seluruh residu tap-to-assign (handleCellTouchEnd, isTouchSelected, touchSelectedShift)
+     * agar scroll sentuh di mobile tidak pernah memicu penambahan jadwal tidak sengaja.
+     */
+    public function test_scenario_11_roster_view_enforces_strict_drag_only_assignment_and_purges_tap_assign(): void
+    {
+        $fixture = $this->setUpRosterFixture();
+
+        $response = $this->actingAs($fixture['managerUser'])->get(route('roster.index', [
+            'month' => 11,
+            'year' => 2026,
+            'department_id' => $fixture['foDeptA']->id,
+        ]));
+
+        $response->assertOk()
+            ->assertSee('handleTouchStart', escape: false)
+            ->assertSee('handleTouchMove', escape: false)
+            ->assertSee('handleTouchEnd', escape: false)
+            ->assertSee('dragOverCell', escape: false)
+            ->assertSee('dropOnCell', escape: false)
+            ->assertDontSee('handleCellTouchEnd', escape: false)
+            ->assertDontSee('isTouchSelected', escape: false)
+            ->assertDontSee('touchSelectedShift', escape: false);
+    }
 }
