@@ -11,7 +11,10 @@
             </div>
             <a href="{{ route('staff.index') }}"
                class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg border border-line bg-surface hover:bg-surface-muted text-ink text-xs font-medium transition-colors shadow-sm">
-                {{ __('staff.back_to_directory') }}
+                <svg class="w-4 h-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="M10.5 19.5L3 12m0 0l7.5-7.5M3 12h18" />
+                </svg>
+                <span>{{ __('staff.back_to_directory') }}</span>
             </a>
         </div>
     </x-slot>

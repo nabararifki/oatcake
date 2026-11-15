@@ -2,10 +2,12 @@
 
 namespace App\Models;
 
+use Database\Seeders\PublicHolidaySeeder;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
 
 class Company extends Model
@@ -67,6 +69,12 @@ class Company extends Model
 
             if (empty($company->attributes['timezone'])) {
                 $company->attributes['timezone'] = 'Asia/Jakarta';
+            }
+        });
+
+        static::created(function (Company $company): void {
+            if (Schema::hasTable('public_holidays')) {
+                PublicHolidaySeeder::seedForCompany($company);
             }
         });
     }
@@ -206,18 +214,22 @@ class Company extends Model
     }
 
     /**
-     * Calculate total physical storage usage in bytes for attendance proof photos.
+     * Calculate total physical storage usage in bytes for attendance proof photos and leave attachments.
      */
     public function getStorageUsageBytes(): int
     {
-        $dir = "attendance_proofs/{$this->id}";
-        if (! Storage::disk('local')->exists($dir)) {
-            return 0;
-        }
+        $dirs = [
+            "attendance_proofs/{$this->id}",
+            "leave_attachments/{$this->id}",
+        ];
 
         $totalBytes = 0;
-        foreach (Storage::disk('local')->allFiles($dir) as $file) {
-            $totalBytes += (int) Storage::disk('local')->size($file);
+        foreach ($dirs as $dir) {
+            if (Storage::disk('local')->exists($dir)) {
+                foreach (Storage::disk('local')->allFiles($dir) as $file) {
+                    $totalBytes += (int) Storage::disk('local')->size($file);
+                }
+            }
         }
 
         return $totalBytes;

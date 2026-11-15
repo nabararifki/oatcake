@@ -28,6 +28,7 @@ class LangParityTest extends TestCase
             'company.php',
             'dashboard.php',
             'departments.php',
+            'leave.php',
             'nav.php',
             'roster.php',
             'staff.php',

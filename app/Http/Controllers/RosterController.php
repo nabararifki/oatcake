@@ -5,6 +5,8 @@ namespace App\Http\Controllers;
 use App\Models\Company;
 use App\Models\Department;
 use App\Models\Employee;
+use App\Models\LeaveRequest;
+use App\Models\PublicHoliday;
 use App\Models\Shift;
 use App\Models\Tag;
 use App\Models\User;
@@ -15,6 +17,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 use Illuminate\View\View;
 
 class RosterController extends Controller
@@ -73,6 +76,52 @@ class RosterController extends Controller
             if ($managerDeptId === null || (int) $employee->department_id !== (int) $managerDeptId) {
                 abort(403, __('roster.view_only_mutation_forbidden'));
             }
+        }
+    }
+
+    /**
+     * Ensure the target date or schedule is not locked by an approved leave request.
+     *
+     * @throws ValidationException
+     */
+    protected function ensureNotLockedByApprovedLeave(
+        Employee $employee,
+        string $scheduleDate,
+        ?WorkSchedule $schedule = null
+    ): void {
+        $dateStr = Carbon::parse($scheduleDate, 'Asia/Jakarta')->toDateString();
+
+        if ($schedule !== null && $schedule->isLockedLeave()) {
+            throw ValidationException::withMessages([
+                'schedule_date' => [__('roster.err_employee_on_approved_leave')],
+            ]);
+        }
+
+        $hasLockedScheduleOnDate = WorkSchedule::withoutGlobalScopes()
+            ->where('company_id', $employee->company_id)
+            ->where('employee_id', $employee->id)
+            ->whereDate('schedule_date', $dateStr)
+            ->where('notes', 'like', 'LEAVE:%')
+            ->exists();
+
+        if ($hasLockedScheduleOnDate) {
+            throw ValidationException::withMessages([
+                'schedule_date' => [__('roster.err_employee_on_approved_leave')],
+            ]);
+        }
+
+        $hasApprovedLeave = LeaveRequest::withoutGlobalScopes()
+            ->where('company_id', $employee->company_id)
+            ->where('employee_id', $employee->id)
+            ->where('status', LeaveRequest::STATUS_APPROVED)
+            ->whereDate('start_date', '<=', $dateStr)
+            ->whereDate('end_date', '>=', $dateStr)
+            ->exists();
+
+        if ($hasApprovedLeave) {
+            throw ValidationException::withMessages([
+                'schedule_date' => [__('roster.err_employee_on_approved_leave')],
+            ]);
         }
     }
 
@@ -261,18 +310,30 @@ class RosterController extends Controller
             ? [1 => 'Mon', 2 => 'Tue', 3 => 'Wed', 4 => 'Thu', 5 => 'Fri', 6 => 'Sat', 7 => 'Sun']
             : [1 => 'Sen', 2 => 'Sel', 3 => 'Rab', 4 => 'Kam', 5 => 'Jum', 6 => 'Sab', 7 => 'Min'];
 
+        $monthHolidaysByDate = PublicHoliday::withoutGlobalScopes()
+            ->where('company_id', $company->id)
+            ->whereDate('holiday_date', '>=', $startOfMonth->toDateString())
+            ->whereDate('holiday_date', '<=', $endOfMonth->toDateString())
+            ->get()
+            ->keyBy(fn (PublicHoliday $h) => $h->holiday_date instanceof Carbon ? $h->holiday_date->toDateString() : Carbon::parse($h->holiday_date)->toDateString());
+
         $daysInMonth = [];
         $cursor = $startOfMonth->copy();
         while ($cursor->lessThanOrEqualTo($endOfMonth)) {
             $dow = $cursor->dayOfWeekIso;
+            $dateStr = $cursor->toDateString();
+            $holiday = $monthHolidaysByDate->get($dateStr);
             $daysInMonth[] = [
-                'date' => $cursor->toDateString(),
+                'date' => $dateStr,
                 'day' => $cursor->day,
                 'day_padded' => str_pad((string) $cursor->day, 2, '0', STR_PAD_LEFT),
                 'day_name' => $dayShortNames[$dow],
                 'is_weekend' => in_array($dow, [6, 7], true),
                 'is_today' => $cursor->isToday(),
                 'iso_week' => $cursor->isoWeek(),
+                'is_holiday' => $holiday !== null,
+                'holiday_name' => $holiday?->name,
+                'holiday_is_national' => (bool) ($holiday?->is_national ?? false),
             ];
             $cursor->addDay();
         }
@@ -495,6 +556,9 @@ class RosterController extends Controller
                 ->firstOrFail();
         }
 
+        // Strict Leave Immutability Guard: block any schedule mutation on approved leave dates
+        $this->ensureNotLockedByApprovedLeave($employee, $validated['schedule_date'], $existingSchedule);
+
         // Soft Turnaround Evaluation (< 8h Rest Advisory)
         $overrideWarning = $request->boolean('override_warning') || $request->boolean('force');
         $turnaround = $this->evaluateTurnaround(
@@ -594,6 +658,7 @@ class RosterController extends Controller
 
         $employee = Employee::withoutGlobalScopes()->findOrFail($schedule->employee_id);
         $this->authorizeEmployeeMutation($actor, $employee);
+        $this->ensureNotLockedByApprovedLeave($employee, (string) $schedule->schedule_date, $schedule);
 
         $validated = $request->validate([
             'custom_start_time' => [
@@ -673,6 +738,7 @@ class RosterController extends Controller
 
         $employee = Employee::withoutGlobalScopes()->findOrFail($schedule->employee_id);
         $this->authorizeEmployeeMutation($actor, $employee);
+        $this->ensureNotLockedByApprovedLeave($employee, (string) $schedule->schedule_date, $schedule);
         Gate::forUser($actor)->authorize('split', $schedule);
 
         if ($schedule->isOff() || $schedule->status === 'pending_delete') {
@@ -775,6 +841,7 @@ class RosterController extends Controller
 
         $employee = Employee::withoutGlobalScopes()->findOrFail($schedule->employee_id);
         $this->authorizeEmployeeMutation($actor, $employee);
+        $this->ensureNotLockedByApprovedLeave($employee, (string) $schedule->schedule_date, $schedule);
 
         if ($schedule->status === 'published' || ! empty($schedule->published_start_time)) {
             $schedule->update(['status' => 'pending_delete']);
@@ -822,6 +889,7 @@ class RosterController extends Controller
 
         $employee = Employee::withoutGlobalScopes()->findOrFail($schedule->employee_id);
         $this->authorizeEmployeeMutation($actor, $employee);
+        $this->ensureNotLockedByApprovedLeave($employee, (string) $schedule->schedule_date, $schedule);
 
         $schedule->update(['status' => 'published']);
         $schedule->load([
@@ -931,7 +999,10 @@ class RosterController extends Controller
         $query = WorkSchedule::withoutGlobalScopes()
             ->where('company_id', $company->id)
             ->betweenDates($startOfMonth, $endOfMonth)
-            ->where('status', 'published');
+            ->where('status', 'published')
+            ->where(function ($q): void {
+                $q->whereNull('notes')->orWhere('notes', 'not like', 'LEAVE:%');
+            });
 
         if ($departmentId) {
             $query->byDepartment($departmentId);

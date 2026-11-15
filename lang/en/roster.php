@@ -71,6 +71,7 @@ return [
     'save_shift_btn'                => 'Save',
     'shift_updated_successfully'    => 'Master shift configuration updated successfully.',
     'toggle_staff_column'           => 'Collapse / Expand Staff Column',
+    'compact_staff_mode'            => 'Compact View',
     'staff_rail_label'              => 'Staff',
     'btn_publish'                   => 'Publish Roster',
     'pending_delete_badge'          => 'Will be Deleted on Publish',
@@ -119,4 +120,8 @@ return [
     'err_split_off_or_pending'      => 'Day off or pending-delete shift cannot be split.',
     'err_split_too_short'           => 'Shift duration is too short to split (minimum 2 hours).',
     'err_no_active_company'         => 'No active company context found.',
+    'err_employee_on_approved_leave'=> 'Schedule is locked because the employee is on approved leave. Cancel or edit via the Leave module.',
+    'leave_locked_tooltip'          => 'Locked Leave Schedule (Can only be modified via the Leave Management module)',
+    'holiday_national_badge'        => 'National Holiday',
+    'holiday_event_badge'           => 'Company Special Event',
 ];

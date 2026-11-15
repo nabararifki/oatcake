@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Traits\BelongsToCompany;
 use Carbon\Carbon;
 use Carbon\CarbonInterface;
 use Illuminate\Database\Eloquent\Builder;
@@ -12,30 +13,22 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class PublicHoliday extends Model
 {
-    use HasFactory, HasUuids;
+    use BelongsToCompany, HasFactory, HasUuids;
 
-    /**
-     * The attributes that are mass assignable.
-     *
-     * @var list<string>
-     */
     protected $fillable = [
         'uuid',
         'company_id',
         'holiday_date',
         'name',
+        'is_national',
         'is_recurring',
     ];
 
-    /**
-     * Get the attributes that should be cast.
-     *
-     * @return array<string, string>
-     */
     protected function casts(): array
     {
         return [
             'holiday_date' => 'date',
+            'is_national' => 'boolean',
             'is_recurring' => 'boolean',
         ];
     }
@@ -51,14 +44,6 @@ class PublicHoliday extends Model
     }
 
     /**
-     * Get the route key for the model.
-     */
-    public function getRouteKeyName(): string
-    {
-        return 'uuid';
-    }
-
-    /**
      * Set the holiday_date attribute as a pure Y-m-d date string.
      */
     public function setHolidayDateAttribute($value): void
@@ -69,7 +54,22 @@ class PublicHoliday extends Model
     }
 
     /**
-     * Get the company that owns the holiday (null if national holiday).
+     * Resolve route model binding without global scopes so the controller can
+     * explicitly enforce RBAC and company ownership checks (HTTP 403).
+     */
+    public function resolveRouteBinding($value, $field = null)
+    {
+        if ($field !== null) {
+            return static::withoutGlobalScopes()->where($field, $value)->first();
+        }
+
+        return static::withoutGlobalScopes()
+            ->where(fn (Builder $q) => is_numeric($value) ? $q->where('id', (int) $value) : $q->where('uuid', (string) $value))
+            ->first();
+    }
+
+    /**
+     * Get the company that owns this holiday override.
      */
     public function company(): BelongsTo
     {
@@ -77,52 +77,96 @@ class PublicHoliday extends Model
     }
 
     /**
-     * Scope a query to only include upcoming public holidays from today (Asia/Jakarta).
+     * Resolve target company_id from explicit parameter or current auth session.
      */
-    public function scopeUpcoming(Builder $query): Builder
+    public static function resolveCompanyId(?int $companyId = null): ?int
     {
-        $today = Carbon::now('Asia/Jakarta')->toDateString();
+        if ($companyId !== null) {
+            return $companyId;
+        }
 
-        return $query->where('holiday_date', '>=', $today)->orderBy('holiday_date');
+        if (auth()->check()) {
+            $user = auth()->user();
+
+            if (method_exists($user, 'isSuperAdmin') && $user->isSuperAdmin() && session()->has('active_company_id')) {
+                $activeId = session('active_company_id');
+                if ($activeId !== null) {
+                    return (int) $activeId;
+                }
+            }
+
+            if ($user->company_id !== null) {
+                return (int) $user->company_id;
+            }
+
+            if (method_exists($user, 'isSuperAdmin') && $user->isSuperAdmin()) {
+                $firstId = Company::query()->orderBy('id')->value('id');
+
+                return $firstId !== null ? (int) $firstId : null;
+            }
+        }
+
+        if (app()->runningInConsole()) {
+            $firstId = Company::query()->orderBy('id')->value('id');
+
+            return $firstId !== null ? (int) $firstId : null;
+        }
+
+        return null;
     }
 
     /**
-     * Scope a query to only include public holidays for a specific calendar year.
+     * Scope query to upcoming holidays from a reference date for the company.
      */
-    public function scopeForYear(Builder $query, int $year): Builder
+    public function scopeUpcoming(Builder $query, ?Carbon $from = null, ?int $companyId = null): Builder
     {
-        $start = sprintf('%04d-01-01', $year);
-        $end = sprintf('%04d-12-31', $year);
+        $resolvedCompanyId = self::resolveCompanyId($companyId);
+        $fromDate = ($from ?? Carbon::now('Asia/Jakarta'))->toDateString();
 
-        return $query->whereBetween('holiday_date', [$start, $end])->orderBy('holiday_date');
+        return $query
+            ->when($resolvedCompanyId !== null, fn (Builder $q) => $q->where('company_id', $resolvedCompanyId))
+            ->whereDate('holiday_date', '>=', $fromDate)
+            ->orderBy('holiday_date', 'asc');
     }
 
     /**
-     * Determine whether a given date is a public holiday (national or company-specific).
+     * Scope query to a specific year for the company.
+     */
+    public function scopeForYear(Builder $query, int $year, ?int $companyId = null): Builder
+    {
+        $resolvedCompanyId = self::resolveCompanyId($companyId);
+
+        return $query
+            ->when($resolvedCompanyId !== null, fn (Builder $q) => $q->where('company_id', $resolvedCompanyId))
+            ->whereYear('holiday_date', $year)
+            ->orderBy('holiday_date', 'asc');
+    }
+
+    /**
+     * Determine whether a given date is a public holiday or special event for the company.
      */
     public static function isHoliday(CarbonInterface|string $date, ?int $companyId = null): bool
     {
-        return static::findHolidayForDate($date, $companyId) !== null;
+        return self::findHolidayForDate($date, $companyId) !== null;
     }
 
     /**
-     * Retrieve the matching public holiday record (company-specific prioritized, or national) for a given date.
+     * Retrieve the matching PublicHoliday record for a given date and company.
      */
     public static function findHolidayForDate(CarbonInterface|string $date, ?int $companyId = null): ?self
     {
+        $resolvedCompanyId = self::resolveCompanyId($companyId);
+        if ($resolvedCompanyId === null) {
+            return null;
+        }
+
         $dateStr = $date instanceof CarbonInterface
-            ? $date->copy()->timezone('Asia/Jakarta')->toDateString()
-            : Carbon::parse($date, 'Asia/Jakarta')->toDateString();
+            ? $date->toDateString()
+            : Carbon::parse($date)->toDateString();
 
         return static::withoutGlobalScopes()
+            ->where('company_id', $resolvedCompanyId)
             ->whereDate('holiday_date', $dateStr)
-            ->where(function (Builder $query) use ($companyId): void {
-                $query->whereNull('company_id');
-                if ($companyId !== null) {
-                    $query->orWhere('company_id', $companyId);
-                }
-            })
-            ->orderByRaw('CASE WHEN company_id IS NOT NULL THEN 0 ELSE 1 END')
             ->first();
     }
 }

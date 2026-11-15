@@ -54,12 +54,16 @@ class DashboardTest extends TestCase
     {
         Carbon::setTestNow(Carbon::create(2026, 8, 17, 7, 5, 0, 'Asia/Jakarta'));
 
-        PublicHoliday::create([
-            'company_id' => null,
-            'holiday_date' => '2026-08-17',
-            'name' => 'Hari Kemerdekaan RI',
-            'is_national' => true,
-        ]);
+        PublicHoliday::withoutGlobalScopes()->updateOrCreate(
+            [
+                'company_id' => $this->company->id,
+                'holiday_date' => '2026-08-17',
+            ],
+            [
+                'name' => 'Hari Kemerdekaan RI',
+                'is_national' => true,
+            ]
+        );
 
         $staffUser = User::factory()->create([
             'company_id' => $this->company->id,
@@ -96,7 +100,7 @@ class DashboardTest extends TestCase
             ->assertSee('window.isSecureContext', escape: false)
             ->assertSee('enableHighAccuracy: false, timeout: 20000, maximumAge: 60000', escape: false)
             ->assertSee('07:00–15:00')
-            ->assertSee('✦ Provisional DP')
+            ->assertSee(__('attendance.badge_provisional_dp'))
             ->assertSee(__('dashboard.clock_in_now'))
             ->assertSee(__('dashboard.outside_duty_prompt'))
             ->assertSee('capture="user"', escape: false);

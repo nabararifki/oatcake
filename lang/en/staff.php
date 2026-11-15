@@ -4,7 +4,7 @@ return [
     'title_directory'          => 'Active Staff Directory',
     'subtitle_directory'       => 'Total :count Active Employees',
     'add_new_staff'            => '+ Register New Staff',
-    'back_to_directory'        => '← Back to Staff Directory',
+    'back_to_directory'        => 'Back to Staff Directory',
     'table_name_email'         => 'NAME & EMAIL',
     'table_department'         => 'DEPARTMENT',
     'table_position'           => 'POSITION',

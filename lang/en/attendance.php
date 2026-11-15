@@ -108,9 +108,11 @@ return [
     'verified_by_label'           => 'Verified by',
     'confirm_reject'              => 'Confirm Reject',
     'badge_provisional_dp'        => 'Provisional DP',
+    'badge_dp_committed'          => 'DP Committed +1.0',
     'holiday_detected'            => 'Public Holiday',
     'holiday_dp_notice'           => 'Attendance on a public holiday is eligible for compensatory day off (Provisional DP).',
     'tooltip_provisional_dp'      => 'Temporary DP credit. Final balance will be committed upon verifying required work duration.',
+    'tooltip_dp_committed'        => 'Official DP entitlement (+1.0 day) has been committed to the leave ledger.',
     'filter_search_staff'         => 'Search Staff Name',
     'filter_search_placeholder'   => 'Type staff name or position...',
     'filter_all_statuses'         => 'All Attendance Statuses',
@@ -158,4 +160,5 @@ return [
     'err_payload_too_large'       => 'The selfie photo file size is too large to transmit over the network. Please try again.',
     'err_photo_processing_failed' => 'Failed to process and compress the selfie photo. Please retake the photo.',
     'err_server_response'         => 'Unexpected server response received (:status). Please try again.',
+    'err_on_approved_leave'       => 'Clock-in rejected: You are currently on approved leave today.',
 ];

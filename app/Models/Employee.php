@@ -149,4 +149,20 @@ class Employee extends Model
     {
         return $this->hasMany(Attendance::class);
     }
+
+    /**
+     * Get the immutable leave ledger entries for the employee.
+     */
+    public function leaveLedgerEntries(): HasMany
+    {
+        return $this->hasMany(LeaveLedgerEntry::class);
+    }
+
+    /**
+     * Get the leave requests submitted by the employee.
+     */
+    public function leaveRequests(): HasMany
+    {
+        return $this->hasMany(LeaveRequest::class);
+    }
 }

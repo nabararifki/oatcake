@@ -9,3 +9,5 @@ Artisan::command('inspire', function () {
 })->purpose('Display an inspiring quote');
 
 Schedule::command('attendance:prune-photos')->daily();
+Schedule::command('leave:accrue-annual')->daily();
+Schedule::command('leave:prune-expired')->daily();

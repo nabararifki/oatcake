@@ -49,6 +49,8 @@ class Attendance extends Model
         'early_leave_minutes',
         'is_outside_geofence',
         'is_provisional_dp',
+        'dp_committed_at',
+        'dp_ledger_entry_id',
         'proof_photo_path',
         'clock_in_photo_path',
         'clock_out_photo_path',
@@ -83,6 +85,7 @@ class Attendance extends Model
             'early_leave_minutes' => 'integer',
             'is_outside_geofence' => 'boolean',
             'is_provisional_dp' => 'boolean',
+            'dp_committed_at' => 'datetime',
         ];
     }
 
@@ -150,6 +153,22 @@ class Attendance extends Model
     public function verifier(): BelongsTo
     {
         return $this->belongsTo(User::class, 'verified_by');
+    }
+
+    /**
+     * Get the leave ledger entry created when this provisional DP attendance was committed.
+     */
+    public function dpLedgerEntry(): BelongsTo
+    {
+        return $this->belongsTo(LeaveLedgerEntry::class, 'dp_ledger_entry_id');
+    }
+
+    /**
+     * Determine if this attendance record's DP has been committed to the leave ledger.
+     */
+    public function isDpCommitted(): bool
+    {
+        return $this->dp_committed_at !== null || $this->dp_ledger_entry_id !== null;
     }
 
     /**

@@ -277,9 +277,14 @@ export function registerRosterMatrix(Alpine) {
                 event.stopPropagation();
             }
             if (!this.canEdit) return;
+            const ctx = this.findScheduleContextById(scheduleId);
+            if (ctx?.existing?.is_leave_locked) {
+                this.activeScheduleMenuId = null;
+                this.selectedSchedule = null;
+                return;
+            }
             this.activeScheduleMenuId = this.activeScheduleMenuId === scheduleId ? null : scheduleId;
             if (this.activeScheduleMenuId) {
-                const ctx = this.findScheduleContextById(scheduleId);
                 this.selectedSchedule = ctx ? ctx.existing : null;
             } else {
                 this.selectedSchedule = null;
@@ -504,7 +509,7 @@ export function registerRosterMatrix(Alpine) {
             if (!this.canEdit) return;
 
             const existing = this.getScheduleById(empId, dateStr, scheduleId);
-            if (!existing || !existing.id) return;
+            if (!existing || !existing.id || existing.is_leave_locked) return;
 
             this.savingState = 'saving';
             const url = this.destroyUrlTemplate.replace('__ID__', existing.uuid || existing.id);
@@ -1306,7 +1311,7 @@ export function registerRosterMatrix(Alpine) {
                             visible: true,
                             x: event.client.x,
                             y: event.client.y - 36,
-                            text: `${newStartStr.slice(0, 5)} → ${newEndStr.slice(0, 5)}${crossSuffix}`,
+                            text: `${newStartStr.slice(0, 5)} – ${newEndStr.slice(0, 5)}${crossSuffix}`,
                         };
                     },
                     end(event) {
@@ -1403,7 +1408,7 @@ export function registerRosterMatrix(Alpine) {
                             visible: true,
                             x: event.client.x,
                             y: event.client.y - 36,
-                            text: `${origStartShort} – ${origEndShort} → ${newStartStr.slice(0, 5)} – ${newEndStr.slice(0, 5)} (${deltaLabel})`,
+                            text: `${origStartShort}–${origEndShort} | ${newStartStr.slice(0, 5)}–${newEndStr.slice(0, 5)} (${deltaLabel})`,
                         };
                     },
                     end(event) {

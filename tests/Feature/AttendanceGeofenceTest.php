@@ -128,10 +128,13 @@ class AttendanceGeofenceTest extends TestCase
         // Verifikasi juga model PublicHoliday & scopes (upcoming, forYear)
         Carbon::setTestNow(Carbon::create(2026, 11, 4, 8, 0, 0, 'Asia/Jakarta'));
 
+        PublicHoliday::withoutGlobalScopes()->where('company_id', $this->company->id)->delete();
+
         PublicHoliday::create([
-            'company_id' => null,
+            'company_id' => $this->company->id,
             'holiday_date' => '2026-08-17',
             'name' => 'Hari Kemerdekaan RI',
+            'is_national' => true,
             'is_recurring' => true,
         ]);
 
@@ -139,11 +142,12 @@ class AttendanceGeofenceTest extends TestCase
             'company_id' => $this->company->id,
             'holiday_date' => '2026-12-25',
             'name' => 'Hari Raya Natal',
+            'is_national' => true,
             'is_recurring' => true,
         ]);
 
-        $this->assertCount(1, PublicHoliday::upcoming()->get());
-        $this->assertCount(2, PublicHoliday::forYear(2026)->get());
+        $this->assertCount(1, PublicHoliday::upcoming(null, $this->company->id)->get());
+        $this->assertCount(2, PublicHoliday::forYear(2026, $this->company->id)->get());
     }
 
     /**

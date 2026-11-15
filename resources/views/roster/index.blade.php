@@ -186,7 +186,7 @@
                                 </div>
                             </div>
 
-                            <!-- Tombol Pemicu Modal Pengaturan Master Shift (Ikon Gear ⚙) -->
+                            <!-- Tombol Pemicu Modal Pengaturan Master Shift -->
                             <div class="relative group shrink-0 ml-0.5">
                                 <button type="button"
                                         @click="$dispatch('open-modal', 'shift-settings-modal')"
@@ -349,35 +349,57 @@
                                         @endif
                                     </form>
 
-                                    <!-- Tombol Ciutkan / Lebarkan Kolom Nama Staf (« / ») -->
+                                    <!-- Tombol Ciutkan / Lebarkan Kolom Nama Staf -->
                                     <button type="button"
                                             @click="toggleStaffColumn()"
                                             :class="staffColumnCollapsed ? 'mx-auto' : 'shrink-0'"
                                             title="{{ __('roster.toggle_staff_column') }}"
                                             aria-label="{{ __('roster.toggle_staff_column') }}"
                                             class="h-6 w-6 rounded-md bg-surface-muted hover:bg-accent/15 text-ink-muted hover:text-accent border border-line flex items-center justify-center font-mono text-xs font-bold transition-colors cursor-pointer">
-                                        <span x-text="staffColumnCollapsed ? '»' : '«'">«</span>
+                                        <svg x-show="!staffColumnCollapsed" class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                            <path d="M18.75 19.5l-7.5-7.5 7.5-7.5m-6 15L5.25 12l7.5-7.5" />
+                                        </svg>
+                                        <svg x-show="staffColumnCollapsed" x-cloak class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                            <path d="M5.25 4.5l7.5 7.5-7.5 7.5m6-15l7.5 7.5-7.5 7.5" />
+                                        </svg>
                                     </button>
                                 </div>
                             </th>
 
                             <!-- Header Tanggal Bulanan Sticky (Top-Axis: z-20, Klik untuk Toggle Expand/Collapse 24-Hour Timeline) -->
                             @foreach ($daysInMonth as $d)
+                                @php
+                                    $isHolidayDate = !empty($d['is_holiday']);
+                                    $holidayTooltip = $isHolidayDate
+                                        ? ($d['holiday_name'] . ' (' . (!empty($d['holiday_is_national']) ? __('roster.holiday_national_badge') : __('roster.holiday_event_badge')) . ') — ' . __('roster.click_to_expand_timeline'))
+                                        : __('roster.click_to_expand_timeline');
+                                @endphp
                                 <th @click="toggleDateExpand('{{ $d['date'] }}')"
-                                    title="{{ __('roster.click_to_expand_timeline') }}"
+                                    title="{{ $holidayTooltip }}"
                                     :class="expandedDate === '{{ $d['date'] }}'
                                         ? 'w-96 min-w-[24rem] sm:w-[500px] sm:min-w-[500px] shrink-0 bg-accent/10 border-x-2 border-accent ring-1 ring-inset ring-accent/40'
                                         : 'w-14 min-w-[3.5rem] sm:w-16 sm:min-w-[4rem] shrink-0'"
-                                    class="o-roster-date-th cursor-pointer sticky top-0 z-20 border-b border-r border-line px-1 py-1.5 text-center select-none transition-[width] duration-300 ease-in-out {{ $d['is_today'] ? 'bg-accent/15 text-accent font-bold ring-1 ring-inset ring-accent/30' : ($d['is_weekend'] ? 'bg-surface-muted/90 text-red-600 dark:text-red-400' : 'bg-surface-muted text-ink hover:bg-surface-muted/70') }}">
+                                    class="o-roster-date-th cursor-pointer sticky top-0 z-20 border-b border-r border-line px-1 py-1.5 text-center select-none transition-[width] duration-300 ease-in-out {{ $d['is_today'] ? 'bg-accent/15 text-accent font-bold ring-1 ring-inset ring-accent/30' : ($isHolidayDate ? 'bg-rose-500/10 text-rose-600 dark:text-rose-400' : ($d['is_weekend'] ? 'bg-surface-muted/90 text-red-600 dark:text-red-400' : 'bg-surface-muted text-ink hover:bg-surface-muted/70')) }}">
                                     <div class="flex flex-col items-center justify-center leading-tight">
                                         <div class="flex items-center justify-center gap-1">
                                             <span class="text-[10px] font-medium uppercase tracking-wider opacity-80">{{ $d['day_name'] }}</span>
                                             <span class="text-xs font-bold">{{ $d['day_padded'] }}</span>
-                                            @if ($d['is_weekend'])
+                                            @if ($isHolidayDate)
+                                                <span class="inline-flex items-center justify-center text-rose-600 dark:text-rose-400" title="{{ $d['holiday_name'] }}">
+                                                    <svg class="w-3 h-3 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                                        <path d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09z" />
+                                                    </svg>
+                                                </span>
+                                            @elseif ($d['is_weekend'])
                                                 <span class="text-[8px] font-mono tracking-tight font-semibold opacity-75">{{ __('common.dp_badge') }}</span>
                                             @endif
                                             <span class="px-1 py-0.5 rounded bg-accent/15 text-[9px] font-mono font-bold text-accent ring-1 ring-inset ring-accent/30" x-show="expandedDate === '{{ $d['date'] }}'">24h</span>
                                         </div>
+                                        @if ($isHolidayDate)
+                                            <span class="text-[8px] font-semibold text-rose-600 dark:text-rose-400 truncate max-w-[3.25rem] sm:max-w-[3.75rem]" title="{{ $d['holiday_name'] }}">
+                                                {{ $d['holiday_name'] }}
+                                            </span>
+                                        @endif
 
                                         <!-- Sub-Header Linimasa 24 Jam (Muncul Saat Kolom Tanggal Di-Expand) -->
                                         <div x-show="expandedDate === '{{ $d['date'] }}'"
@@ -428,7 +450,9 @@
                                         </span>
                                     @else
                                         <span class="inline-flex items-center justify-center px-1 py-0.5 text-[10px] text-emerald-600 dark:text-emerald-400 font-bold">
-                                            ✓
+                                            <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                                <path d="M4.5 12.75l6 6 9-13.5" />
+                                            </svg>
                                         </span>
                                     @endif
                                 </th>
@@ -587,7 +611,9 @@
                                                              :title="'{{ __('roster.overnight_continuation_from') }} (' + prevSched.schedule_date + ')'">
                                                             <div class="flex items-center justify-between gap-1 w-full">
                                                                 <div class="flex items-center gap-1 min-w-0">
-                                                                    <span class="text-[9px] font-mono font-bold">←</span>
+                                                                    <svg class="w-2.5 h-2.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                                                        <path d="M10.5 19.5L3 12m0 0l7.5-7.5M3 12h18" />
+                                                                    </svg>
                                                                     <span class="text-[10px] font-bold truncate" x-text="prevSched.shift_code"></span>
                                                                     <span class="text-[8px] font-mono px-0.5 rounded bg-black/30 text-amber-200">{{ __('roster.cross_day_badge') }}</span>
                                                                 </div>
@@ -597,16 +623,20 @@
                                                                         <button type="button"
                                                                                 @click.stop="removeScheduleById({{ $emp->id }}, prevSched.schedule_date, prevSched.id, $event)"
                                                                                 title="{{ __('roster.remove_shift') }}"
-                                                                                class="hover:bg-black/40 px-1 rounded text-white/90 hover:text-white pointer-events-auto text-[11px] font-bold leading-none cursor-pointer">
-                                                                            ×
+                                                                                class="hover:bg-black/40 p-0.5 rounded text-white/90 hover:text-white pointer-events-auto leading-none cursor-pointer">
+                                                                            <svg class="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                                                                <path d="M6 18L18 6M6 6l12 12" />
+                                                                            </svg>
                                                                         </button>
                                                                     </template>
                                                                     <template x-if="prevSched.status === 'pending_delete'">
                                                                         <button type="button"
                                                                                 @click.stop="restoreScheduleById({{ $emp->id }}, prevSched.schedule_date, prevSched.id, $event)"
                                                                                 title="{{ __('roster.undo_delete') }}"
-                                                                                class="hover:bg-black/40 px-1 rounded text-red-700 dark:text-red-300 pointer-events-auto text-[10px] font-bold leading-none cursor-pointer">
-                                                                            ↺
+                                                                                class="hover:bg-black/40 p-0.5 rounded text-red-700 dark:text-red-300 pointer-events-auto leading-none cursor-pointer">
+                                                                            <svg class="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                                                                <path d="M9 15L3 9m0 0l6-6M3 9h12a6 6 0 010 12h-3" />
+                                                                            </svg>
                                                                         </button>
                                                                     </template>
                                                                 @endif
@@ -634,17 +664,20 @@
                                                          :data-schedule-uuid="sched.uuid"
                                                          :data-employee-id="{{ $emp->id }}"
                                                          :data-date="'{{ $d['date'] }}'"
+                                                         :draggable="sched.is_leave_locked ? 'false' : 'true'"
                                                          @if ($canEdit)
-                                                             @click="if ($el.dataset.justSlid === '1') return; if (sched.status === 'pending_delete') { restoreScheduleById({{ $emp->id }}, '{{ $d['date'] }}', sched.id, $event); } else { selectedSchedule = schedule; toggleScheduleMenu(sched.id, $event); }"
+                                                             @click="if ($el.dataset.justSlid === '1' || sched.is_leave_locked) return; if (sched.status === 'pending_delete') { restoreScheduleById({{ $emp->id }}, '{{ $d['date'] }}', sched.id, $event); } else { selectedSchedule = schedule; toggleScheduleMenu(sched.id, $event); }"
                                                          @endif
-                                                         :title="sched.status === 'pending_delete' ? '{{ __('roster.pending_delete_badge') }}' : (sched.shift_name + ' (' + formatTimeShort(sched.effective_start_time) + ' – ' + formatTimeShort(sched.effective_end_time) + ')')"
+                                                         :title="sched.is_leave_locked ? ((sched.leave_remarks || sched.notes) + ' — {{ __('roster.leave_locked_tooltip') }}') : (sched.status === 'pending_delete' ? '{{ __('roster.pending_delete_badge') }}' : (sched.shift_name + ' (' + formatTimeShort(sched.effective_start_time) + ' – ' + formatTimeShort(sched.effective_end_time) + ')'))"
                                                          class="o-shift-pill o-shift-pill-resizable group group/pill absolute top-0 bottom-0 rounded-md px-1.5 py-0.5 flex flex-col justify-between overflow-hidden transition-all duration-300 ease-in-out hover:z-20 touch-none"
                                                          :class="[
-                                                             sched.status === 'pending_delete'
-                                                                 ? 'opacity-30 dark:opacity-20 line-through grayscale border border-dashed border-red-500 bg-red-500/10 pointer-events-auto text-red-700 dark:text-red-300 cursor-pointer'
-                                                                 : (sched.status === 'draft'
-                                                                     ? 'opacity-70 dark:opacity-65 border-dashed border border-amber-400/70 text-white cursor-grab active:cursor-grabbing'
-                                                                     : 'opacity-100 shadow-sm border-solid border border-line-strong text-white cursor-grab active:cursor-grabbing'),
+                                                             sched.is_leave_locked
+                                                                 ? 'opacity-100 shadow-sm border-solid border border-line-strong text-white cursor-not-allowed'
+                                                                 : (sched.status === 'pending_delete'
+                                                                     ? 'opacity-30 dark:opacity-20 line-through grayscale border border-dashed border-red-500 bg-red-500/10 pointer-events-auto text-red-700 dark:text-red-300 cursor-pointer'
+                                                                     : (sched.status === 'draft'
+                                                                         ? 'opacity-70 dark:opacity-65 border-dashed border border-amber-400/70 text-white cursor-grab active:cursor-grabbing'
+                                                                         : 'opacity-100 shadow-sm border-solid border border-line-strong text-white cursor-grab active:cursor-grabbing')),
                                                              sched.has_turnaround_warning && sched.status !== 'pending_delete' ? 'ring-2 ring-amber-400 dark:ring-amber-300' : '',
                                                              selectedSchedule && Number(selectedSchedule.id) === Number(sched.id) ? 'ring-2 ring-white shadow-lg z-20' : '',
                                                              isCrossDaySchedule(sched) ? 'border-r-4 border-r-amber-300 bg-[repeating-linear-gradient(135deg,transparent,transparent_6px,rgba(255,255,255,0.16)_6px,rgba(255,255,255,0.16)_12px)]' : ''
@@ -652,9 +685,9 @@
                                                          :style="getScheduleBarStyle(sched, '{{ $d['date'] }}')">
 
                                                         @if ($canEdit)
-                                                            <!-- Split Handle: Hanya aktif jika tanggal sedang ter-expand -->
+                                                            <!-- Split Handle: Hanya aktif jika tanggal sedang ter-expand & bukan cuti terkunci -->
                                                             <template x-if="expandedDate === schedule.schedule_date">
-                                                                <div x-show="sched.status !== 'pending_delete' && !sched.is_off"
+                                                                <div x-show="sched.status !== 'pending_delete' && !sched.is_off && !sched.is_leave_locked"
                                                                      class="hidden sm:flex absolute inset-y-0 left-1/2 -translate-x-1/2 w-3 items-center justify-center opacity-0 group-hover:opacity-100 hover:opacity-100 transition-opacity cursor-col-resize z-20"
                                                                      @click.stop="splitSchedule(schedule.id)"
                                                                      :title="__trans.action_split_shift">
@@ -662,9 +695,9 @@
                                                                 </div>
                                                             </template>
 
-                                                            <!-- Resize Handles: Hanya aktif jika tanggal sedang ter-expand -->
+                                                            <!-- Resize Handles: Hanya aktif jika tanggal sedang ter-expand & bukan cuti terkunci -->
                                                             <template x-if="expandedDate === schedule.schedule_date">
-                                                                <div x-show="sched.status !== 'pending_delete' && !sched.is_off">
+                                                                <div x-show="sched.status !== 'pending_delete' && !sched.is_off && !sched.is_leave_locked">
                                                                     <div @click.stop
                                                                          class="o-resize-handle-left resize-handle-left absolute inset-y-0 left-0 w-2 cursor-ew-resize hover:bg-white/40 rounded-l transition-colors z-20"
                                                                          title="{{ __('roster.resize_left_tooltip') }}"></div>
@@ -676,63 +709,89 @@
                                                         @endif
 
                                                         <!-- Badge Akumulasi Durasi Jam di Sudut Kanan Atas Balok Shift -->
-                                                        <span x-show="!sched.is_off"
+                                                        <span x-show="!sched.is_off && !sched.is_leave_locked"
                                                               :class="canEdit && sched.status !== 'pending_delete' ? 'sm:group-hover/pill:opacity-0' : ''"
                                                               class="absolute top-0.5 right-1 text-3xs font-bold opacity-75 dark:opacity-90 leading-none pointer-events-none select-none"
                                                               x-text="getScheduleDurationHours(sched) + 'h'">
                                                         </span>
 
-                                                        <!-- Baris Atas Balok: Titik Draft / Badge Pending Delete + Kode Shift + Tombol Hapus / Undo -->
+                                                        <!-- Baris Atas Balok: Titik Draft / Badge Pending Delete + Kode Shift / Label Cuti Terkunci + Tombol Hapus / Undo -->
                                                         <div class="flex items-center justify-between gap-1 w-full pr-4 pointer-events-none">
                                                             <div class="flex items-center gap-1 min-w-0">
-                                                                <template x-if="sched.status === 'draft'">
+                                                                <template x-if="sched.status === 'draft' && !sched.is_leave_locked">
                                                                     <span class="h-1.5 w-1.5 rounded-full bg-amber-400 ring-1 ring-black/30 shrink-0"
                                                                           title="{{ __('roster.draft_indicator_tooltip') }}"></span>
                                                                 </template>
 
-                                                                <span class="text-[11px] font-bold tracking-tight leading-none truncate" x-text="sched.shift_code"></span>
+                                                                <template x-if="sched.is_leave_locked">
+                                                                    <span class="inline-flex items-center gap-1 min-w-0">
+                                                                        <span class="text-[10px] font-bold tracking-tight leading-none truncate" x-text="sched.leave_label || ('OFF • ' + (sched.leave_code || 'LEAVE'))"></span>
+                                                                        <span class="inline-flex items-center leading-none shrink-0" title="{{ __('roster.leave_locked_tooltip') }}">
+                                                                            <svg class="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                                                                <path d="M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z" />
+                                                                            </svg>
+                                                                        </span>
+                                                                    </span>
+                                                                </template>
+                                                                <template x-if="!sched.is_leave_locked">
+                                                                    <span class="text-[11px] font-bold tracking-tight leading-none truncate" x-text="sched.shift_code"></span>
+                                                                </template>
 
-                                                                <template x-if="sched.has_turnaround_warning && sched.status !== 'pending_delete'">
+                                                                <template x-if="sched.has_turnaround_warning && sched.status !== 'pending_delete' && !sched.is_leave_locked">
                                                                     <span class="text-[8px] font-bold px-0.5 rounded bg-amber-400 text-black leading-tight"
                                                                           :title="'{{ __('roster.turnaround_badge') }} (' + (sched.rest_hours ?? 0) + 'h)'">
                                                                         {{ __('roster.turnaround_badge') }}
                                                                     </span>
                                                                 </template>
 
-                                                                <template x-if="sched.duty_tag_code === 'MOD_ELIGIBLE' || sched.shift_code === 'MOD'">
+                                                                <template x-if="(sched.duty_tag_code === 'MOD_ELIGIBLE' || sched.shift_code === 'MOD') && !sched.is_leave_locked">
                                                                     <span class="text-[8px] font-bold px-0.5 rounded bg-black/30 text-amber-300 leading-tight">{{ __('roster.duty_mod_badge') }}</span>
                                                                 </template>
-                                                                <template x-if="isCrossDaySchedule(sched)">
+                                                                <template x-if="isCrossDaySchedule(sched) && !sched.is_leave_locked">
                                                                     <span class="text-[8px] font-mono px-0.5 rounded bg-black/30 text-white/90 leading-tight">{{ __('roster.cross_day_badge') }}</span>
                                                                 </template>
                                                             </div>
                                                         </div>
 
                                                         @if ($canEdit)
-                                                            <template x-if="sched.status !== 'pending_delete'">
+                                                            <template x-if="sched.status !== 'pending_delete' && !sched.is_leave_locked">
                                                                 <button type="button"
                                                                         @click.stop="removeScheduleById({{ $emp->id }}, '{{ $d['date'] }}', sched.id, $event)"
                                                                         title="{{ __('roster.remove_shift') }}"
                                                                         class="hidden sm:block absolute top-0.5 right-0.5 z-30 opacity-0 group-hover/pill:opacity-100 hover:bg-black/40 p-0.5 rounded text-white/90 hover:text-white pointer-events-auto transition-opacity cursor-pointer">
-                                                                    <svg class="h-3 w-3" viewBox="0 0 20 20" fill="currentColor">
-                                                                        <path fill-rule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clip-rule="evenodd"/>
+                                                                    <svg class="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                                                        <path d="M6 18L18 6M6 6l12 12" />
                                                                     </svg>
                                                                 </button>
                                                             </template>
-                                                            <template x-if="sched.status === 'pending_delete'">
+                                                            <template x-if="sched.status === 'pending_delete' && !sched.is_leave_locked">
                                                                 <button type="button"
                                                                         @click.stop="restoreScheduleById({{ $emp->id }}, '{{ $d['date'] }}', sched.id, $event)"
                                                                         title="{{ __('roster.undo_delete') }}"
-                                                                        class="absolute top-0.5 right-0.5 z-30 px-1 rounded bg-red-500/20 text-red-700 dark:text-red-300 pointer-events-auto text-[10px] font-bold leading-none cursor-pointer">
-                                                                    ↺
+                                                                        class="absolute top-0.5 right-0.5 z-30 p-0.5 rounded bg-red-500/20 text-red-700 dark:text-red-300 pointer-events-auto leading-none cursor-pointer">
+                                                                    <svg class="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                                                        <path d="M9 15L3 9m0 0l6-6M3 9h12a6 6 0 010 12h-3" />
+                                                                    </svg>
                                                                 </button>
                                                             </template>
                                                         @endif
 
-                                                        <!-- Baris Bawah Balok: Rentang Waktu Efektif -->
+                                                        <!-- Baris Bawah Balok: Rentang Waktu Efektif atau Remarks Cuti -->
                                                         <div class="flex items-center justify-between text-[9px] font-mono leading-none opacity-90 pointer-events-none">
-                                                            <span x-text="sched.is_off ? '{{ __('roster.day_off_short') }}' : formatTimeShort(sched.effective_start_time)"></span>
-                                                            <span x-text="sched.is_off ? '{{ __('common.dp_badge') }}' : (expandedDate === '{{ $d['date'] }}' && isCrossDaySchedule(sched) ? '24:00→' : formatTimeShort(sched.effective_end_time))"></span>
+                                                            <template x-if="sched.is_leave_locked">
+                                                                <span class="truncate w-full text-left font-sans text-[8px]" x-text="sched.leave_remarks || sched.notes"></span>
+                                                            </template>
+                                                            <template x-if="!sched.is_leave_locked">
+                                                                <div class="flex items-center justify-between w-full">
+                                                                    <span x-text="sched.is_off ? '{{ __('roster.day_off_short') }}' : formatTimeShort(sched.effective_start_time)"></span>
+                                                                    <span class="inline-flex items-center gap-0.5">
+                                                                        <span x-text="sched.is_off ? '{{ __('common.dp_badge') }}' : (expandedDate === '{{ $d['date'] }}' && isCrossDaySchedule(sched) ? '24:00' : formatTimeShort(sched.effective_end_time))"></span>
+                                                                        <svg x-show="!sched.is_off && expandedDate === '{{ $d['date'] }}' && isCrossDaySchedule(sched)" class="w-2.5 h-2.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                                                            <path d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3" />
+                                                                        </svg>
+                                                                    </span>
+                                                                </div>
+                                                            </template>
                                                         </div>
                                                     </div>
                                                 </div>
@@ -752,7 +811,7 @@
                                 <td colspan="{{ count($daysInMonth) + 1 }}" class="p-8 text-center text-ink-muted text-xs">
                                     <div class="flex flex-col items-center justify-center gap-2">
                                         <svg class="h-8 w-8 text-ink-faint" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M6.75 3v2.25M17.25 3v2.253 3.75h18M4.5 7.5h15a2.25 2.25 0 0 1 2.25 2.25v10.5A2.25 2.25 0 0 1 19.5 22.5H4.5A2.25 2.25 0 0 1 2.25 20.25V9.75A2.25 2.25 0 0 1 4.5 7.5Z"/>
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 0 1 2.25-2.25h13.5A2.25 2.25 0 0 1 21 7.5v11.25m-18 0A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75m-18 0v-7.5A2.25 2.25 0 0 1 5.25 9h13.5A2.25 2.25 0 0 1 21 11.25v7.5"/>
                                         </svg>
                                         <p>{{ __('roster.empty_schedule') }}</p>
                                     </div>
@@ -922,7 +981,9 @@
                                 <button type="button"
                                         @click="showNewShiftForm = false"
                                         class="text-2xs font-semibold text-ink-muted hover:text-ink cursor-pointer">
-                                    ×
+                                    <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                        <path d="M6 18L18 6M6 6l12 12" />
+                                    </svg>
                                 </button>
                             </div>
                             <div class="grid grid-cols-2 sm:grid-cols-6 gap-2.5 items-end">

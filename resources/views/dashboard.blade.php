@@ -112,7 +112,11 @@
                          : 'border-red-500/30 bg-red-500/10 text-red-700 dark:text-red-300'"
                      class="rounded-xl border px-3.5 py-2.5 text-xs font-medium flex items-center justify-between gap-2">
                     <span x-text="feedbackMessage"></span>
-                    <button type="button" @click="feedbackMessage = ''" class="text-ink-muted hover:text-ink cursor-pointer">×</button>
+                    <button type="button" @click="feedbackMessage = ''" class="text-ink-muted hover:text-ink cursor-pointer">
+                        <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                            <path d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                    </button>
                 </div>
 
                 <!-- Banner Diagnostik Error GPS Laptop/Browser (HTTPS / Permission / Network Timeout) -->
@@ -186,6 +190,7 @@
                         <span x-show="distanceMeters !== null && isInsideGeofence"
                               x-cloak
                               class="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/10 border border-emerald-500/20 px-3 py-1 text-xs font-semibold text-emerald-700 dark:text-emerald-300">
+                            <span class="h-2 w-2 rounded-full bg-emerald-500 shrink-0"></span>
                             <span>{{ __('dashboard.gps_inside_hotel') }}</span>
                             <span class="font-mono text-2xs opacity-80" x-text="'(' + distanceMeters + 'm)'"></span>
                         </span>
@@ -193,6 +198,9 @@
                         <span x-show="distanceMeters !== null && !isInsideGeofence"
                               x-cloak
                               class="inline-flex items-center gap-1.5 rounded-full bg-amber-500/10 border border-amber-500/30 px-3 py-1 text-xs font-semibold text-amber-700 dark:text-amber-300">
+                            <svg class="w-3.5 h-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                <path d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z" />
+                            </svg>
                             <span>{{ __('dashboard.gps_outside_hotel') }}</span>
                             <span class="font-mono text-2xs opacity-80" x-text="'(' + distanceMeters + 'm)'"></span>
                         </span>
@@ -207,11 +215,35 @@
 
                         <!-- Badge Provisional DP (Jika Hari Libur Nasional / Tanggal Merah) -->
                         @if (($isHoliday ?? false) || ($todayAttendance?->is_provisional_dp ?? false))
-                            <span title="{{ __('attendance.tooltip_provisional_dp') }}"
-                                  class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-2xs font-semibold bg-purple-500/10 text-purple-700 dark:text-purple-300 border border-purple-500/20">
-                                <span>✦ {{ __('attendance.badge_provisional_dp') }}</span>
-                            </span>
+                            @if ($todayAttendance?->isDpCommitted())
+                                <span title="{{ __('attendance.tooltip_dp_committed') }}"
+                                      class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-2xs font-semibold bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border border-emerald-500/20">
+                                    <svg class="w-3.5 h-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                        <path d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09z" />
+                                    </svg>
+                                    <span>{{ __('attendance.badge_dp_committed') }}</span>
+                                </span>
+                            @else
+                                <span title="{{ __('attendance.tooltip_provisional_dp') }}"
+                                      class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-2xs font-semibold bg-purple-500/10 text-purple-700 dark:text-purple-300 border border-purple-500/20">
+                                    <svg class="w-3.5 h-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                        <path d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09z" />
+                                    </svg>
+                                    <span>{{ __('attendance.badge_provisional_dp') }}</span>
+                                </span>
+                            @endif
                         @endif
+
+                        <!-- Ringkasan Kompak Saldo Cuti Tahunan (AL) & Saldo DP Aktif (DP) -->
+                        <span class="inline-flex items-center gap-1.5 rounded-full bg-surface-muted border border-line px-3 py-1 text-2xs font-semibold text-ink">
+                            <span class="text-ink-muted">{{ __('dashboard.al_balance_label') }}:</span>
+                            <span class="font-mono font-bold text-ink">{{ number_format((float) ($annualLeaveBalance ?? 0), 2) }} {{ __('dashboard.days_short') }}</span>
+                        </span>
+
+                        <span class="inline-flex items-center gap-1.5 rounded-full bg-surface-muted border border-line px-3 py-1 text-2xs font-semibold text-ink">
+                            <span class="text-ink-muted">{{ __('dashboard.dp_balance_label') }}:</span>
+                            <span class="font-mono font-bold text-ink">{{ number_format((float) ($dpBalance ?? 0), 2) }} {{ __('dashboard.days_short') }}</span>
+                        </span>
                     </div>
 
                     <!-- Baris Tindakan Cepat (One-Touch Action) -->
@@ -1396,9 +1428,15 @@
                         </div>
 
                         <div class="rounded-xl border border-line bg-surface p-5 shadow-sm">
-                            <div class="text-xs font-medium text-ink-muted uppercase">{{ __('common.annual_leave_balance_est') }}</div>
+                            <div class="flex items-center justify-between gap-2">
+                                <div class="text-xs font-medium text-ink-muted uppercase">{{ __('common.annual_leave_balance_est') }}</div>
+                                <a href="{{ route('leave.index') }}"
+                                   class="rounded-lg border border-line bg-surface hover:bg-surface-muted text-ink text-2xs font-semibold px-2.5 py-1 transition">
+                                    {{ __('leave.btn_manage_leave') }}
+                                </a>
+                            </div>
                             <div class="mt-2 text-2xl font-bold text-ink">
-                                12 <span class="text-xs font-normal text-ink-muted">{{ __('common.working_days_sprint4') }}</span>
+                                {{ number_format((float) ($annualLeaveBalance ?? 0), 2) }} <span class="text-xs font-normal text-ink-muted">{{ __('common.working_days_sprint4') }}</span>
                             </div>
                             <p class="mt-1 text-xs text-ink-faint">
                                 {{ __('common.sprint4_leave_desc') }}
@@ -1409,12 +1447,12 @@
                         <div class="rounded-xl border border-line bg-surface p-5 shadow-sm">
                             <div class="flex items-center justify-between">
                                 <div class="text-xs font-medium text-ink-muted uppercase">{{ __('common.dp_balance_est') }}</div>
-                                <span class="o-badge o-badge-accent cursor-help" title="{{ __('common.dp_tooltip') }}">
+                                <a href="{{ route('leave.index') }}" class="o-badge o-badge-accent cursor-pointer" title="{{ __('common.dp_tooltip') }}">
                                     {{ __('common.dp_badge') }}
-                                </span>
+                                </a>
                             </div>
                             <div class="mt-2 text-2xl font-bold text-ink">
-                                0 <span class="text-xs font-normal text-ink-muted">{{ __('common.days_unit') }}</span>
+                                {{ number_format((float) ($dpBalance ?? 0), 2) }} <span class="text-xs font-normal text-ink-muted">{{ __('common.days_unit') }}</span>
                             </div>
                             <p class="mt-1 text-xs text-ink-faint">
                                 {{ __('common.dp_desc') }}

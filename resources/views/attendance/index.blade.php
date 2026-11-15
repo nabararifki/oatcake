@@ -13,7 +13,10 @@
             <div class="flex flex-wrap items-center gap-2 shrink-0">
                 @if (! empty($todayHoliday))
                     <span class="inline-flex items-center gap-1.5 rounded-lg border border-purple-500/30 bg-purple-500/10 px-3 py-1.5 text-xs font-semibold text-purple-700 dark:text-purple-300">
-                        <span>✦ {{ __('attendance.holiday_detected') }}: {{ $todayHoliday->name }}</span>
+                        <svg class="w-3.5 h-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                            <path d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09z" />
+                        </svg>
+                        <span>{{ __('attendance.holiday_detected') }}: {{ $todayHoliday->name }}</span>
                     </span>
                 @endif
 
@@ -243,8 +246,10 @@
                                     </button>
                                 @elseif ($record->clock_in_at)
                                     <div class="inline-flex flex-col items-center" title="{{ __('attendance.photo_expired') }}">
-                                        <span class="inline-flex items-center justify-center w-7 h-7 sm:w-8 sm:h-8 rounded-lg bg-surface-muted border border-line text-3xs text-ink-muted italic">
-                                            Ø
+                                        <span class="inline-flex items-center justify-center w-7 h-7 sm:w-8 sm:h-8 rounded-lg bg-surface-muted border border-line text-3xs text-ink-muted">
+                                            <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                                <path d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
+                                            </svg>
                                         </span>
                                         <span class="text-3xs text-ink-muted mt-0.5">{{ __('attendance.col_selfie_in') }}</span>
                                     </div>
@@ -270,8 +275,10 @@
                                     </button>
                                 @elseif ($record->clock_out_at)
                                     <div class="inline-flex flex-col items-center" title="{{ __('attendance.photo_expired') }}">
-                                        <span class="inline-flex items-center justify-center w-7 h-7 sm:w-8 sm:h-8 rounded-lg bg-surface-muted border border-line text-3xs text-ink-muted italic">
-                                            Ø
+                                        <span class="inline-flex items-center justify-center w-7 h-7 sm:w-8 sm:h-8 rounded-lg bg-surface-muted border border-line text-3xs text-ink-muted">
+                                            <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                                <path d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
+                                            </svg>
                                         </span>
                                         <span class="text-3xs text-ink-muted mt-0.5">{{ __('attendance.col_selfie_out') }}</span>
                                     </div>
@@ -311,10 +318,23 @@
                                 @endif
 
                                 @if ($record->is_provisional_dp)
-                                    <span title="{{ __('attendance.tooltip_provisional_dp') }}"
-                                          class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-3xs font-semibold bg-purple-500/10 text-purple-700 dark:text-purple-300 border border-purple-500/20">
-                                        <span>✦ {{ __('attendance.badge_provisional_dp') }}</span>
-                                    </span>
+                                    @if ($record->isDpCommitted())
+                                        <span title="{{ __('attendance.tooltip_dp_committed') }}"
+                                              class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-3xs font-semibold bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border border-emerald-500/20">
+                                            <svg class="w-3.5 h-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                                <path d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09z" />
+                                            </svg>
+                                            <span>{{ __('attendance.badge_dp_committed') }}</span>
+                                        </span>
+                                    @else
+                                        <span title="{{ __('attendance.tooltip_provisional_dp') }}"
+                                              class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-3xs font-semibold bg-purple-500/10 text-purple-700 dark:text-purple-300 border border-purple-500/20">
+                                            <svg class="w-3.5 h-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                                <path d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09z" />
+                                            </svg>
+                                            <span>{{ __('attendance.badge_provisional_dp') }}</span>
+                                        </span>
+                                    @endif
                                 @endif
                             </div>
                         </td>

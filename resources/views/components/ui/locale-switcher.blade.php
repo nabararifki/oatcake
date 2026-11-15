@@ -15,7 +15,7 @@
     <button type="submit"
             @click.stop
             title="{{ __('nav.language') }}: {{ $targetMeta['name'] }}"
-            aria-label="{{ __('nav.language') }} ({{ strtoupper($currentLocale) }} → {{ strtoupper($targetLocale) }})"
+            aria-label="{{ __('nav.language') }} ({{ strtoupper($currentLocale) }} / {{ strtoupper($targetLocale) }})"
             class="group inline-flex items-center gap-0.5 rounded-xl bg-surface-muted p-0.5 ring-1 ring-inset ring-line hover:ring-line-strong transition-all cursor-pointer select-none focus:outline-none focus:ring-2 focus:ring-accent">
         @foreach ($supportedLocales as $code => $meta)
             <span aria-current="{{ $currentLocale === $code ? 'true' : 'false' }}"

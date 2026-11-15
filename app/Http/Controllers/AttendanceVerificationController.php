@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\Attendance;
 use App\Models\Company;
 use App\Models\Department;
+use App\Services\DpCommitService;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
@@ -17,6 +18,10 @@ use Symfony\Component\HttpFoundation\BinaryFileResponse;
 
 class AttendanceVerificationController extends Controller
 {
+    public function __construct(
+        private readonly DpCommitService $dpCommitService
+    ) {}
+
     /**
      * Display the manager/admin outside attendance verification console.
      */
@@ -137,6 +142,10 @@ class AttendanceVerificationController extends Controller
             'rejection_reason' => null,
         ]);
 
+        $attendance->refresh();
+        $this->dpCommitService->attemptCommitFromAttendance($attendance, $request->user());
+        $attendance->refresh();
+
         if ($request->expectsJson()) {
             return response()->json([
                 'success' => true,
@@ -145,6 +154,8 @@ class AttendanceVerificationController extends Controller
                     'id' => $attendance->id,
                     'uuid' => $attendance->uuid,
                     'status' => $attendance->status,
+                    'dp_committed_at' => $attendance->dp_committed_at?->timezone('Asia/Jakarta')->toIso8601String(),
+                    'dp_ledger_entry_id' => $attendance->dp_ledger_entry_id,
                     'verified_by' => $attendance->verified_by,
                     'verified_at' => $attendance->verified_at?->timezone('Asia/Jakarta')->toIso8601String(),
                 ],

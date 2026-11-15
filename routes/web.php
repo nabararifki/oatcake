@@ -5,6 +5,7 @@ use App\Http\Controllers\AttendanceVerificationController;
 use App\Http\Controllers\CompanySettingsController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\DepartmentController;
+use App\Http\Controllers\LeaveRequestController;
 use App\Http\Controllers\LocaleController;
 use App\Http\Controllers\PreferenceController;
 use App\Http\Controllers\ProfileController;
@@ -63,6 +64,21 @@ Route::middleware('auth')->group(function () {
     Route::delete('/attendance/{attendance}', [AttendanceController::class, 'destroy'])->name('attendance.destroy');
     Route::get('/attendance/{attendance}/proof', [AttendanceVerificationController::class, 'streamProofPhoto'])->name('attendance.proof');
 
+    Route::get('/leave', [LeaveRequestController::class, 'index'])->name('leave.index');
+    Route::get('/leave/calculate-days', [LeaveRequestController::class, 'calculateDays'])->name('leave.calculateDays');
+    Route::put('/leave/smart-weights', [LeaveRequestController::class, 'updateSmartWeights'])->name('leave.smartWeights.update');
+    Route::put('/leave/types/{leaveType}/settings', [LeaveRequestController::class, 'updateLeaveTypeSettings'])->name('leave.types.updateSettings');
+    Route::post('/leave/ledger/adjust', [LeaveRequestController::class, 'adjustLedger'])->name('leave.ledger.adjust');
+    Route::get('/leave/ledger/{employee}', [LeaveRequestController::class, 'ledgerHistory'])->name('leave.ledger.history');
+    Route::post('/leave', [LeaveRequestController::class, 'store'])->name('leave.store');
+    Route::put('/leave/{leaveRequest}', [LeaveRequestController::class, 'update'])->name('leave.update');
+    Route::post('/leave/{leaveRequest}/cancel', [LeaveRequestController::class, 'cancel'])->name('leave.cancel');
+    Route::post('/leave/{leaveRequest}/approve-tier1', [LeaveRequestController::class, 'approveTier1'])->name('leave.approveTier1');
+    Route::post('/leave/{leaveRequest}/approve-tier2', [LeaveRequestController::class, 'approveTier2'])->name('leave.approveTier2');
+    Route::post('/leave/{leaveRequest}/reject', [LeaveRequestController::class, 'reject'])->name('leave.reject');
+    Route::get('/leave/{leaveRequest}/smart-analysis', [LeaveRequestController::class, 'smartAnalysis'])->name('leave.smartAnalysis');
+    Route::get('/leave/{leaveRequest}/attachment', [LeaveRequestController::class, 'streamAttachment'])->name('leave.attachment');
+
     Route::get('/departments', [DepartmentController::class, 'index'])->name('departments.index');
     Route::post('/departments', [DepartmentController::class, 'store'])->name('departments.store');
     Route::put('/departments/{department}', [DepartmentController::class, 'update'])->name('departments.update');
@@ -76,6 +92,11 @@ Route::middleware('auth')->group(function () {
     Route::post('/settings/company', [CompanySettingsController::class, 'update']);
     Route::put('/settings/company/{company}', [CompanySettingsController::class, 'update'])->name('settings.company.update.tenant');
     Route::patch('/settings/company/{company}', [CompanySettingsController::class, 'update']);
+
+    Route::post('/settings/holidays', [CompanySettingsController::class, 'storeHoliday'])->name('settings.holidays.store');
+    Route::put('/settings/holidays/{publicHoliday}', [CompanySettingsController::class, 'updateHoliday'])->name('settings.holidays.update');
+    Route::patch('/settings/holidays/{publicHoliday}', [CompanySettingsController::class, 'updateHoliday']);
+    Route::delete('/settings/holidays/{publicHoliday}', [CompanySettingsController::class, 'destroyHoliday'])->name('settings.holidays.destroy');
 
     Route::get('/company/settings', [CompanySettingsController::class, 'edit'])->name('company.settings');
     Route::put('/company/settings', [CompanySettingsController::class, 'update'])->name('company.settings.update');

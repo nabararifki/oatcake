@@ -2,7 +2,12 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Attendance;
 use App\Models\Company;
+use App\Models\PublicHoliday;
+use App\Models\User;
+use App\Services\DpCommitService;
+use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -38,7 +43,7 @@ class CompanySettingsController extends Controller
     }
 
     /**
-     * Show the form for editing the active company's settings and geofence parameters.
+     * Show the form for editing the active company's settings, geofence parameters, and holiday calendar.
      */
     public function edit(Request $request): View
     {
@@ -57,7 +62,26 @@ class CompanySettingsController extends Controller
             : collect();
         $tenants = $allCompanies;
 
-        return view('settings.company', compact('company', 'tenants', 'allCompanies', 'isSuperAdmin'));
+        $selectedHolidayYear = $request->filled('holiday_year')
+            ? (int) $request->query('holiday_year')
+            : null;
+
+        $holidays = $company
+            ? PublicHoliday::withoutGlobalScopes()
+                ->where('company_id', $company->id)
+                ->when($selectedHolidayYear !== null, fn ($q) => $q->whereYear('holiday_date', $selectedHolidayYear))
+                ->orderBy('holiday_date')
+                ->get()
+            : collect();
+
+        return view('settings.company', compact(
+            'company',
+            'tenants',
+            'allCompanies',
+            'isSuperAdmin',
+            'holidays',
+            'selectedHolidayYear'
+        ));
     }
 
     /**
@@ -146,6 +170,205 @@ class CompanySettingsController extends Controller
         return redirect()
             ->route('settings.company')
             ->with('success', __('company.updated_successfully'));
+    }
+
+    /**
+     * Store a new public holiday or company special event (Admin+ only).
+     */
+    public function storeHoliday(Request $request): RedirectResponse|JsonResponse
+    {
+        $user = $request->user();
+        if (! $user || ! $user->isAdminOrAbove()) {
+            abort(403);
+        }
+
+        $company = $this->resolveActiveCompany($request);
+        if (! $company) {
+            abort(403);
+        }
+
+        $validated = $request->validate([
+            'holiday_date' => [
+                'required',
+                'date',
+                Rule::unique('public_holidays', 'holiday_date')
+                    ->where(fn ($query) => $query->where('company_id', $company->id)),
+            ],
+            'name' => ['required', 'string', 'max:150'],
+            'is_national' => ['nullable', 'boolean'],
+            'is_recurring' => ['nullable', 'boolean'],
+        ]);
+
+        $dateString = Carbon::parse($validated['holiday_date'])->toDateString();
+        $isNational = $request->boolean('is_national', false);
+        $isRecurring = $request->has('is_recurring')
+            ? $request->boolean('is_recurring')
+            : $isNational;
+
+        $holiday = PublicHoliday::withoutGlobalScopes()->create([
+            'company_id' => $company->id,
+            'holiday_date' => $dateString,
+            'name' => trim($validated['name']),
+            'is_national' => $isNational,
+            'is_recurring' => $isRecurring,
+        ]);
+
+        $this->syncAttendancesForHolidayAdded($company->id, $dateString, $user);
+
+        if ($request->wantsJson()) {
+            return response()->json([
+                'success' => true,
+                'message' => __('company.holiday_created_successfully'),
+                'holiday' => $holiday,
+            ], 201);
+        }
+
+        return redirect()
+            ->route('settings.company')
+            ->with('success', __('company.holiday_created_successfully'));
+    }
+
+    /**
+     * Update an existing public holiday or company special event (Admin+ only).
+     */
+    public function updateHoliday(Request $request, PublicHoliday $publicHoliday): RedirectResponse|JsonResponse
+    {
+        $user = $request->user();
+        if (! $user || ! $user->isAdminOrAbove()) {
+            abort(403);
+        }
+
+        $company = $this->resolveActiveCompany($request);
+        if (! $company || (int) $publicHoliday->company_id !== (int) $company->id) {
+            abort(403);
+        }
+
+        $validated = $request->validate([
+            'holiday_date' => [
+                'required',
+                'date',
+                Rule::unique('public_holidays', 'holiday_date')
+                    ->where(fn ($query) => $query->where('company_id', $company->id))
+                    ->ignore($publicHoliday->id),
+            ],
+            'name' => ['required', 'string', 'max:150'],
+            'is_national' => ['nullable', 'boolean'],
+            'is_recurring' => ['nullable', 'boolean'],
+        ]);
+
+        $oldDateString = $publicHoliday->holiday_date instanceof Carbon
+            ? $publicHoliday->holiday_date->toDateString()
+            : Carbon::parse($publicHoliday->holiday_date)->toDateString();
+
+        $newDateString = Carbon::parse($validated['holiday_date'])->toDateString();
+
+        $isNational = $request->has('is_national')
+            ? $request->boolean('is_national')
+            : (bool) $publicHoliday->is_national;
+
+        $isRecurring = $request->has('is_recurring')
+            ? $request->boolean('is_recurring')
+            : (bool) $publicHoliday->is_recurring;
+
+        $publicHoliday->update([
+            'holiday_date' => $newDateString,
+            'name' => trim($validated['name']),
+            'is_national' => $isNational,
+            'is_recurring' => $isRecurring,
+        ]);
+
+        if ($oldDateString !== $newDateString) {
+            $this->syncAttendancesForHolidayRemoved($company->id, $oldDateString);
+        }
+
+        $this->syncAttendancesForHolidayAdded($company->id, $newDateString, $user);
+
+        if ($request->wantsJson()) {
+            return response()->json([
+                'success' => true,
+                'message' => __('company.holiday_updated_successfully'),
+                'holiday' => $publicHoliday->fresh(),
+            ]);
+        }
+
+        return redirect()
+            ->route('settings.company')
+            ->with('success', __('company.holiday_updated_successfully'));
+    }
+
+    /**
+     * Delete an existing public holiday or company special event (Admin+ only).
+     */
+    public function destroyHoliday(Request $request, PublicHoliday $publicHoliday): RedirectResponse|JsonResponse
+    {
+        $user = $request->user();
+        if (! $user || ! $user->isAdminOrAbove()) {
+            abort(403);
+        }
+
+        $company = $this->resolveActiveCompany($request);
+        if (! $company || (int) $publicHoliday->company_id !== (int) $company->id) {
+            abort(403);
+        }
+
+        $removedDateString = $publicHoliday->holiday_date instanceof Carbon
+            ? $publicHoliday->holiday_date->toDateString()
+            : Carbon::parse($publicHoliday->holiday_date)->toDateString();
+
+        $publicHoliday->delete();
+
+        $this->syncAttendancesForHolidayRemoved($company->id, $removedDateString);
+
+        if ($request->wantsJson()) {
+            return response()->json([
+                'success' => true,
+                'message' => __('company.holiday_deleted_successfully'),
+            ]);
+        }
+
+        return redirect()
+            ->route('settings.company')
+            ->with('success', __('company.holiday_deleted_successfully'));
+    }
+
+    /**
+     * Synchronize same-day or existing uncommitted attendances when a holiday is added/updated.
+     */
+    protected function syncAttendancesForHolidayAdded(int $companyId, string $dateString, User $actor): void
+    {
+        $attendances = Attendance::withoutGlobalScopes()
+            ->where('company_id', $companyId)
+            ->whereDate('attendance_date', $dateString)
+            ->get();
+
+        $dpService = app(DpCommitService::class);
+
+        foreach ($attendances as $attendance) {
+            if (! $attendance->is_provisional_dp) {
+                $attendance->is_provisional_dp = true;
+                $attendance->save();
+            }
+
+            if ($attendance->clock_out_at !== null && $attendance->dp_committed_at === null) {
+                $dpService->attemptCommitFromAttendance($attendance->fresh(), $actor);
+            }
+        }
+    }
+
+    /**
+     * Synchronize uncommitted attendances when a holiday is removed, preserving committed ledger entries.
+     */
+    protected function syncAttendancesForHolidayRemoved(int $companyId, string $dateString): void
+    {
+        if (PublicHoliday::isHoliday($dateString, $companyId)) {
+            return;
+        }
+
+        Attendance::withoutGlobalScopes()
+            ->where('company_id', $companyId)
+            ->whereDate('attendance_date', $dateString)
+            ->whereNull('dp_committed_at')
+            ->update(['is_provisional_dp' => false]);
     }
 
     /**

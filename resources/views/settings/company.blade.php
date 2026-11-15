@@ -371,6 +371,296 @@
                     </div>
                 </div>
             </form>
+
+            <!-- Kalender Hari Libur & Event Khusus Per Perusahaan -->
+            @php
+                $canManageHolidays = auth()->check() && auth()->user()->isAdminOrAbove();
+                $companyHolidays = $holidays ?? \App\Models\PublicHoliday::withoutGlobalScopes()
+                    ->where('company_id', $company->id)
+                    ->orderBy('holiday_date')
+                    ->get();
+            @endphp
+            <div x-data="{
+                    editHolidayId: null,
+                    editHolidayDate: '',
+                    editHolidayName: '',
+                    editHolidayIsNational: false,
+                    deleteHolidayId: null,
+                    deleteHolidayName: '',
+                    deleteHolidayDate: '',
+                    openEditHoliday(id, date, name, isNational) {
+                        this.editHolidayId = id;
+                        this.editHolidayDate = date;
+                        this.editHolidayName = name;
+                        this.editHolidayIsNational = Boolean(isNational);
+                        this.$dispatch('open-modal', 'edit-holiday-modal');
+                    },
+                    openDeleteHoliday(id, date, name) {
+                        this.deleteHolidayId = id;
+                        this.deleteHolidayDate = date;
+                        this.deleteHolidayName = name;
+                        this.$dispatch('open-modal', 'delete-holiday-modal');
+                    }
+                 }"
+                 class="bg-surface border border-line rounded-2xl p-6 shadow-sm space-y-4">
+                <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border-b border-line pb-4">
+                    <div class="flex items-start gap-3">
+                        <div class="w-10 h-10 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-600 dark:text-amber-400 flex items-center justify-center shrink-0">
+                            <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                <rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect>
+                                <line x1="16" y1="2" x2="16" y2="6"></line>
+                                <line x1="8" y1="2" x2="8" y2="6"></line>
+                                <line x1="3" y1="10" x2="21" y2="10"></line>
+                                <path d="M12 14l1.25 2.5 2.75.4-2 1.95.47 2.75L12 20.3l-2.47 1.3.47-2.75-2-1.95 2.75-.4L12 14z"></path>
+                            </svg>
+                        </div>
+                        <div>
+                            <h3 class="text-sm font-bold text-ink">{{ __('company.holiday_section_title') }}</h3>
+                            <p class="text-xs text-ink-muted mt-0.5">{{ __('company.holiday_section_desc') }}</p>
+                        </div>
+                    </div>
+
+                    @if ($canManageHolidays)
+                        <button type="button"
+                                @click="$dispatch('open-modal', 'create-holiday-modal')"
+                                class="inline-flex items-center gap-2 px-4 py-2 rounded-2xl bg-accent text-accent-fg text-xs font-semibold shadow-sm hover:opacity-95 transition-all cursor-pointer shrink-0">
+                            <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                <line x1="12" y1="5" x2="12" y2="19"></line>
+                                <line x1="5" y1="12" x2="19" y2="12"></line>
+                            </svg>
+                            <span>{{ __('company.holiday_btn_add') }}</span>
+                        </button>
+                    @endif
+                </div>
+
+                @if ($companyHolidays->isEmpty())
+                    <div class="rounded-2xl border border-dashed border-line bg-surface-muted/40 p-8 text-center">
+                        <p class="text-xs text-ink-muted">{{ __('company.holiday_empty') }}</p>
+                    </div>
+                @else
+                    <x-ui.table :striped="true" class="rounded-2xl border border-line bg-surface shadow-2xs overflow-hidden">
+                        <x-slot name="header">
+                            <tr class="bg-surface-muted border-b border-line">
+                                <th class="py-2.5 px-4 text-left text-2xs font-semibold uppercase tracking-wider text-ink-muted">{{ __('company.holiday_col_date') }}</th>
+                                <th class="py-2.5 px-4 text-left text-2xs font-semibold uppercase tracking-wider text-ink-muted">{{ __('company.holiday_col_name') }}</th>
+                                <th class="py-2.5 px-4 text-left text-2xs font-semibold uppercase tracking-wider text-ink-muted">{{ __('company.holiday_col_type') }}</th>
+                                @if ($canManageHolidays)
+                                    <th class="py-2.5 px-4 text-right text-2xs font-semibold uppercase tracking-wider text-ink-muted">{{ __('company.holiday_col_actions') }}</th>
+                                @endif
+                            </tr>
+                        </x-slot>
+                        @foreach ($companyHolidays as $holiday)
+                            @php
+                                $dateObj = $holiday->holiday_date instanceof \Carbon\CarbonInterface
+                                    ? $holiday->holiday_date
+                                    : \Carbon\Carbon::parse($holiday->holiday_date);
+                                $dateIso = $dateObj->toDateString();
+                            @endphp
+                            <tr class="hover:bg-surface-muted/50 transition-colors">
+                                <td class="py-2.5 px-4 font-mono text-xs font-semibold text-ink whitespace-nowrap">
+                                    {{ $dateIso }}
+                                </td>
+                                <td class="py-2.5 px-4 text-xs font-medium text-ink">
+                                    {{ $holiday->name }}
+                                </td>
+                                <td class="py-2.5 px-4 whitespace-nowrap">
+                                    @if ($holiday->is_national)
+                                        <span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-2xs font-semibold bg-rose-500/10 text-rose-700 dark:text-rose-300 border border-rose-500/20">
+                                            <svg class="w-3.5 h-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                                <rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect>
+                                                <line x1="16" y1="2" x2="16" y2="6"></line>
+                                                <line x1="8" y1="2" x2="8" y2="6"></line>
+                                                <line x1="3" y1="10" x2="21" y2="10"></line>
+                                            </svg>
+                                            <span>{{ __('company.holiday_type_national') }}</span>
+                                        </span>
+                                    @else
+                                        <span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-2xs font-semibold bg-amber-500/10 text-amber-700 dark:text-amber-300 border border-amber-500/20">
+                                            <svg class="w-3.5 h-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                                <path d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09z"></path>
+                                            </svg>
+                                            <span>{{ __('company.holiday_type_company_event') }}</span>
+                                        </span>
+                                    @endif
+                                </td>
+                                @if ($canManageHolidays)
+                                    <td class="py-2.5 px-4 text-right whitespace-nowrap">
+                                        <div class="inline-flex items-center justify-end gap-1.5">
+                                            <button type="button"
+                                                    @click="openEditHoliday({{ $holiday->id }}, @js($dateIso), @js($holiday->name), {{ $holiday->is_national ? 'true' : 'false' }})"
+                                                    class="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl border border-line bg-surface hover:bg-surface-muted text-xs font-medium text-ink transition-colors cursor-pointer"
+                                                    title="{{ __('company.holiday_modal_edit_title') }}">
+                                                <svg class="w-3.5 h-3.5 text-ink-muted" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                                    <path d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931z"></path>
+                                                    <path d="M19.5 7.125L16.862 4.487"></path>
+                                                </svg>
+                                                <span>{{ __('common.edit') }}</span>
+                                            </button>
+                                            <button type="button"
+                                                    @click="openDeleteHoliday({{ $holiday->id }}, @js($dateIso), @js($holiday->name))"
+                                                    class="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl border border-red-500/25 bg-red-500/10 hover:bg-red-500/20 text-xs font-medium text-red-600 dark:text-red-400 transition-colors cursor-pointer"
+                                                    title="{{ __('company.holiday_modal_delete_title') }}">
+                                                <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                                    <path d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0"></path>
+                                                </svg>
+                                                <span>{{ __('common.delete') }}</span>
+                                            </button>
+                                        </div>
+                                    </td>
+                                @endif
+                            </tr>
+                        @endforeach
+                    </x-ui.table>
+                @endif
+
+                @if ($canManageHolidays)
+                    <!-- Modal Tambah Hari Libur / Event Khusus -->
+                    <x-ui.modal name="create-holiday-modal" :title="__('company.holiday_modal_add_title')" maxWidth="md">
+                        <form method="POST" action="{{ route('settings.holidays.store') }}" class="space-y-4">
+                            @csrf
+                            <div>
+                                <label for="create-holiday-date" class="block text-xs font-semibold text-ink mb-1">
+                                    {{ __('company.holiday_label_date') }} <span class="text-red-500">*</span>
+                                </label>
+                                <input id="create-holiday-date"
+                                       type="date"
+                                       name="holiday_date"
+                                       required
+                                       class="w-full rounded-2xl border border-line bg-surface px-3.5 py-2 text-sm font-mono text-ink focus:outline-none focus:ring-2 focus:ring-accent" />
+                            </div>
+
+                            <div>
+                                <label for="create-holiday-name" class="block text-xs font-semibold text-ink mb-1">
+                                    {{ __('company.holiday_label_name') }} <span class="text-red-500">*</span>
+                                </label>
+                                <input id="create-holiday-name"
+                                       type="text"
+                                       name="name"
+                                       required
+                                       maxlength="150"
+                                       placeholder="{{ __('company.holiday_placeholder_name') }}"
+                                       class="w-full rounded-2xl border border-line bg-surface px-3.5 py-2 text-sm text-ink focus:outline-none focus:ring-2 focus:ring-accent" />
+                            </div>
+
+                            <div class="rounded-2xl border border-line bg-surface-muted/50 p-3.5">
+                                <label class="flex items-start gap-2.5 cursor-pointer">
+                                    <input type="hidden" name="is_national" value="0" />
+                                    <input type="checkbox"
+                                           name="is_national"
+                                           value="1"
+                                           class="mt-0.5 rounded border-line text-accent focus:ring-accent" />
+                                    <div>
+                                        <span class="block text-xs font-semibold text-ink">{{ __('company.holiday_label_is_national') }}</span>
+                                        <span class="block text-2xs text-ink-muted mt-0.5">{{ __('company.holiday_hint_is_national') }}</span>
+                                    </div>
+                                </label>
+                            </div>
+
+                            <div class="flex items-center justify-end gap-2 pt-3 border-t border-line">
+                                <button type="button"
+                                        @click="$dispatch('close-modal', 'create-holiday-modal')"
+                                        class="px-4 py-2 rounded-2xl border border-line bg-surface hover:bg-surface-muted text-ink text-xs font-medium transition-colors cursor-pointer">
+                                    {{ __('common.cancel') }}
+                                </button>
+                                <button type="submit"
+                                        class="px-4 py-2 rounded-2xl bg-accent text-accent-fg text-xs font-semibold shadow-sm hover:opacity-95 transition-all cursor-pointer">
+                                    {{ __('company.holiday_btn_save') }}
+                                </button>
+                            </div>
+                        </form>
+                    </x-ui.modal>
+
+                    <!-- Modal Edit Hari Libur / Event Khusus -->
+                    <x-ui.modal name="edit-holiday-modal" :title="__('company.holiday_modal_edit_title')" maxWidth="md">
+                        <form method="POST"
+                              :action="`{{ url('/settings/holidays') }}/${editHolidayId}`"
+                              class="space-y-4">
+                            @csrf
+                            @method('PUT')
+                            <div>
+                                <label for="edit-holiday-date" class="block text-xs font-semibold text-ink mb-1">
+                                    {{ __('company.holiday_label_date') }} <span class="text-red-500">*</span>
+                                </label>
+                                <input id="edit-holiday-date"
+                                       type="date"
+                                       name="holiday_date"
+                                       x-model="editHolidayDate"
+                                       required
+                                       class="w-full rounded-2xl border border-line bg-surface px-3.5 py-2 text-sm font-mono text-ink focus:outline-none focus:ring-2 focus:ring-accent" />
+                            </div>
+
+                            <div>
+                                <label for="edit-holiday-name" class="block text-xs font-semibold text-ink mb-1">
+                                    {{ __('company.holiday_label_name') }} <span class="text-red-500">*</span>
+                                </label>
+                                <input id="edit-holiday-name"
+                                       type="text"
+                                       name="name"
+                                       x-model="editHolidayName"
+                                       required
+                                       maxlength="150"
+                                       class="w-full rounded-2xl border border-line bg-surface px-3.5 py-2 text-sm text-ink focus:outline-none focus:ring-2 focus:ring-accent" />
+                            </div>
+
+                            <div class="rounded-2xl border border-line bg-surface-muted/50 p-3.5">
+                                <label class="flex items-start gap-2.5 cursor-pointer">
+                                    <input type="hidden" name="is_national" value="0" />
+                                    <input type="checkbox"
+                                           name="is_national"
+                                           value="1"
+                                           x-model="editHolidayIsNational"
+                                           class="mt-0.5 rounded border-line text-accent focus:ring-accent" />
+                                    <div>
+                                        <span class="block text-xs font-semibold text-ink">{{ __('company.holiday_label_is_national') }}</span>
+                                        <span class="block text-2xs text-ink-muted mt-0.5">{{ __('company.holiday_hint_is_national') }}</span>
+                                    </div>
+                                </label>
+                            </div>
+
+                            <div class="flex items-center justify-end gap-2 pt-3 border-t border-line">
+                                <button type="button"
+                                        @click="$dispatch('close-modal', 'edit-holiday-modal')"
+                                        class="px-4 py-2 rounded-2xl border border-line bg-surface hover:bg-surface-muted text-ink text-xs font-medium transition-colors cursor-pointer">
+                                    {{ __('common.cancel') }}
+                                </button>
+                                <button type="submit"
+                                        class="px-4 py-2 rounded-2xl bg-accent text-accent-fg text-xs font-semibold shadow-sm hover:opacity-95 transition-all cursor-pointer">
+                                    {{ __('company.holiday_btn_update') }}
+                                </button>
+                            </div>
+                        </form>
+                    </x-ui.modal>
+
+                    <!-- Modal Hapus Hari Libur / Event Khusus -->
+                    <x-ui.modal name="delete-holiday-modal" :title="__('company.holiday_modal_delete_title')" maxWidth="sm">
+                        <form method="POST"
+                              :action="`{{ url('/settings/holidays') }}/${deleteHolidayId}`"
+                              class="space-y-4">
+                            @csrf
+                            @method('DELETE')
+                            <p class="text-xs text-ink-muted leading-relaxed">
+                                {{ __('company.holiday_modal_delete_desc') }}
+                            </p>
+                            <div class="rounded-2xl border border-line bg-surface-muted/50 px-3.5 py-2.5 text-xs">
+                                <div class="font-mono font-semibold text-ink" x-text="deleteHolidayDate"></div>
+                                <div class="font-medium text-ink-muted mt-0.5" x-text="deleteHolidayName"></div>
+                            </div>
+
+                            <div class="flex items-center justify-end gap-2 pt-3 border-t border-line">
+                                <button type="button"
+                                        @click="$dispatch('close-modal', 'delete-holiday-modal')"
+                                        class="px-4 py-2 rounded-2xl border border-line bg-surface hover:bg-surface-muted text-ink text-xs font-medium transition-colors cursor-pointer">
+                                    {{ __('common.cancel') }}
+                                </button>
+                                <button type="submit"
+                                        class="px-4 py-2 rounded-2xl bg-red-600 hover:bg-red-700 text-white text-xs font-semibold shadow-sm transition-colors cursor-pointer">
+                                    {{ __('company.holiday_btn_delete') }}
+                                </button>
+                            </div>
+                        </form>
+                    </x-ui.modal>
+                @endif
+            </div>
         @endif
 
         @if ($isSuperAdmin ?? auth()->user()?->isSuperAdmin())

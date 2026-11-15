@@ -8,7 +8,7 @@ return [
     'schedule_roster'          => 'Schedule Roster',
     'attendance'               => 'Attendance',
     'attendance_verifications' => 'Attendance Verification',
-    'leave_requests'           => 'Leave Requests',
+    'leave_requests'           => 'Leave & Permits',
     'spk_smart'        => 'SPK SMART',
     'profile'          => 'Profile',
     'logout'           => 'Log Out',

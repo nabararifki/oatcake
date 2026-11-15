@@ -166,11 +166,54 @@ class WorkSchedule extends Model
     }
 
     /**
-     * Determine if the schedule represents a Day Off / Libur (shift_id is null).
+     * Determine if the schedule represents a Day Off / Libur (shift_id is null, shift code is OFF, or locked leave).
      */
     public function isOff(): bool
     {
-        return $this->shift_id === null;
+        if ($this->shift_id === null || $this->isLockedLeave()) {
+            return true;
+        }
+
+        if ($this->relationLoaded('shift') && $this->shift !== null) {
+            return strtoupper((string) $this->shift->code) === 'OFF';
+        }
+
+        return false;
+    }
+
+    /**
+     * Determine if the schedule is locked due to an approved leave request (notes starting with 'LEAVE:').
+     */
+    public function isLockedLeave(): bool
+    {
+        return is_string($this->notes) && str_starts_with($this->notes, 'LEAVE:');
+    }
+
+    /**
+     * Parse structured leave metadata from notes ('LEAVE:{code}:{id}|{name}: {reason}').
+     *
+     * @return array{code: string, leave_request_id: ?int, label: string, remarks: string}|null
+     */
+    public function parseLeaveMetadata(): ?array
+    {
+        if (! $this->isLockedLeave()) {
+            return null;
+        }
+
+        $raw = substr((string) $this->notes, 6);
+        $parts = explode('|', $raw, 2);
+        $headerParts = explode(':', $parts[0], 2);
+
+        $code = strtoupper(trim($headerParts[0] !== '' ? $headerParts[0] : 'LEAVE'));
+        $requestId = isset($headerParts[1]) && is_numeric($headerParts[1]) ? (int) $headerParts[1] : null;
+        $remarks = isset($parts[1]) && trim($parts[1]) !== '' ? trim($parts[1]) : $code;
+
+        return [
+            'code' => $code,
+            'leave_request_id' => $requestId,
+            'label' => "OFF • {$code}",
+            'remarks' => $remarks,
+        ];
     }
 
     /**
@@ -371,8 +414,10 @@ class WorkSchedule extends Model
     {
         $shift = $this->shift;
         $dutyTag = $this->dutyTag;
-        $startStr = $this->getEffectiveStartTime();
-        $endStr = $this->getEffectiveEndTime();
+        $leaveMeta = $this->parseLeaveMetadata();
+        $isOff = $this->isOff();
+        $startStr = $isOff ? '' : $this->getEffectiveStartTime();
+        $endStr = $isOff ? '' : $this->getEffectiveEndTime();
         $isCrossDay = $startStr !== '' && $endStr !== '' && $endStr <= $startStr;
         $hasCustomTimes = ! empty($this->custom_start_time) && ! empty($this->custom_end_time);
         $durationHours = $this->getDurationInHours();
@@ -386,17 +431,22 @@ class WorkSchedule extends Model
                 ? $this->schedule_date->toDateString()
                 : (string) $this->schedule_date,
             'shift_id' => $this->shift_id,
-            'shift_code' => $shift ? $shift->code : 'OFF',
-            'shift_name' => $shift ? $shift->name : 'Day Off (DP)',
-            'color_badge' => $shift ? $shift->color_badge : '#71717A',
+            'shift_code' => $leaveMeta !== null ? 'OFF' : ($shift ? $shift->code : 'OFF'),
+            'shift_name' => $leaveMeta !== null ? $leaveMeta['remarks'] : ($shift ? $shift->name : 'Day Off (DP)'),
+            'color_badge' => $leaveMeta !== null ? '#52525B' : ($shift ? $shift->color_badge : '#71717A'),
             'effective_start_time' => $startStr,
             'effective_end_time' => $endStr,
             'custom_start_time' => $this->custom_start_time,
             'custom_end_time' => $this->custom_end_time,
             'published_start_time' => $this->published_start_time,
             'published_end_time' => $this->published_end_time,
-            'cross_day' => $hasCustomTimes ? $isCrossDay : ($shift ? (bool) ($shift->cross_day || $isCrossDay) : false),
-            'is_off' => $this->isOff(),
+            'cross_day' => $isOff ? false : ($hasCustomTimes ? $isCrossDay : ($shift ? (bool) ($shift->cross_day || $isCrossDay) : false)),
+            'is_off' => $isOff,
+            'is_leave_locked' => $leaveMeta !== null,
+            'leave_code' => $leaveMeta['code'] ?? null,
+            'leave_request_id' => $leaveMeta['leave_request_id'] ?? null,
+            'leave_label' => $leaveMeta['label'] ?? null,
+            'leave_remarks' => $leaveMeta['remarks'] ?? null,
             'duration_hours' => $durationHours,
             'duration_label' => $durationHours . 'h',
             'duty_tag_id' => $this->duty_tag_id,

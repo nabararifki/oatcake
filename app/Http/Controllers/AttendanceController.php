@@ -9,6 +9,7 @@ use App\Models\PublicHoliday;
 use App\Models\WorkSchedule;
 use App\Services\AttendanceGeofenceService;
 use App\Services\AttendancePhotoService;
+use App\Services\DpCommitService;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
@@ -26,7 +27,8 @@ class AttendanceController extends Controller
 {
     public function __construct(
         private readonly AttendanceGeofenceService $geofenceService,
-        private readonly AttendancePhotoService $photoService
+        private readonly AttendancePhotoService $photoService,
+        private readonly DpCommitService $dpCommitService
     ) {}
 
     /**
@@ -47,7 +49,7 @@ class AttendanceController extends Controller
         $todayDate = $nowWib->toDateString();
 
         $todaySchedule = $employee
-            ? $this->geofenceService->resolveTodaySchedule($employee, $nowWib)
+            ? $this->geofenceService->resolveTodaySchedule($employee, $nowWib, false)
             : null;
 
         $todayHoliday = PublicHoliday::findHolidayForDate($todayDate, $company?->id);
@@ -224,6 +226,15 @@ class AttendanceController extends Controller
             ], 422);
         }
 
+        $nowWib = Carbon::now('Asia/Jakarta');
+
+        if ($this->geofenceService->isEmployeeOnApprovedLeave($employee, $nowWib)) {
+            return response()->json([
+                'success' => false,
+                'message' => __('attendance.err_on_approved_leave'),
+            ], 422);
+        }
+
         try {
             $clockInPhotoPath = $this->photoService->processAndStore(
                 $request->file('photo'),
@@ -240,8 +251,7 @@ class AttendanceController extends Controller
             ], 500);
         }
 
-        $nowWib = Carbon::now('Asia/Jakarta');
-        $schedule = $this->geofenceService->resolveTodaySchedule($employee, $nowWib);
+        $schedule = $this->geofenceService->resolveTodaySchedule($employee, $nowWib, true);
         $evaluation = $this->geofenceService->evaluateClockIn($schedule, $nowWib);
         $isProvisionalDp = PublicHoliday::isHoliday($nowWib, (int) $company->id);
 
@@ -334,6 +344,15 @@ class AttendanceController extends Controller
             ], 422);
         }
 
+        $nowWib = Carbon::now('Asia/Jakarta');
+
+        if ($this->geofenceService->isEmployeeOnApprovedLeave($employee, $nowWib)) {
+            return response()->json([
+                'success' => false,
+                'message' => __('attendance.err_on_approved_leave'),
+            ], 422);
+        }
+
         $geofence = $this->geofenceService->validateGeofence(
             $company,
             (float) $validated['latitude'],
@@ -356,8 +375,7 @@ class AttendanceController extends Controller
             ], 500);
         }
 
-        $nowWib = Carbon::now('Asia/Jakarta');
-        $schedule = $this->geofenceService->resolveTodaySchedule($employee, $nowWib);
+        $schedule = $this->geofenceService->resolveTodaySchedule($employee, $nowWib, true);
         $evaluation = $this->geofenceService->evaluateClockIn($schedule, $nowWib);
         $isProvisionalDp = PublicHoliday::isHoliday($nowWib, (int) $company->id);
 
@@ -502,6 +520,8 @@ class AttendanceController extends Controller
         ]);
 
         $attendance->refresh();
+        $this->dpCommitService->attemptCommitFromAttendance($attendance, $user);
+        $attendance->refresh();
 
         return response()->json([
             'success' => true,
@@ -513,6 +533,9 @@ class AttendanceController extends Controller
                 'uuid' => $attendance->uuid,
                 'work_schedule_id' => $attendance->work_schedule_id,
                 'status' => $attendance->status,
+                'is_provisional_dp' => $attendance->is_provisional_dp,
+                'dp_committed_at' => $attendance->dp_committed_at?->timezone('Asia/Jakarta')->toIso8601String(),
+                'dp_ledger_entry_id' => $attendance->dp_ledger_entry_id,
                 'late_minutes' => $attendance->late_minutes,
                 'early_leave_minutes' => $attendance->early_leave_minutes,
                 'clock_in_photo_path' => $attendance->clock_in_photo_path,
@@ -585,6 +608,8 @@ class AttendanceController extends Controller
             ]);
         });
 
+        $attendance->refresh();
+        $this->dpCommitService->attemptCommitFromAttendance($attendance, $admin);
         $attendance->refresh();
 
         if ($request->expectsJson()) {

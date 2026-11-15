@@ -16,6 +16,7 @@ class DatabaseSeeder extends Seeder
             NovotelOrganizationSeeder::class,
             NovotelShiftSeeder::class,
             PublicHolidaySeeder::class,
+            LeaveTypeSeeder::class,
             SuperAdminSeeder::class,
         ]);
     }

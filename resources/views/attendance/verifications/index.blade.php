@@ -209,10 +209,23 @@
                             <div class="text-xs font-semibold text-ink">{{ $deptCode ?: $deptName }}</div>
                             <div class="text-2xs font-mono text-ink-muted">{{ $shiftLabel }}</div>
                             @if ($item->is_provisional_dp)
-                                <span title="{{ __('attendance.tooltip_provisional_dp') }}"
-                                      class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-3xs font-semibold bg-purple-500/10 text-purple-700 dark:text-purple-300 border border-purple-500/20 mt-1">
-                                    <span>✦ {{ __('attendance.badge_provisional_dp') }}</span>
-                                </span>
+                                @if ($item->isDpCommitted())
+                                    <span title="{{ __('attendance.tooltip_dp_committed') }}"
+                                          class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-3xs font-semibold bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border border-emerald-500/20 mt-1">
+                                        <svg class="w-3.5 h-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                            <path d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09z" />
+                                        </svg>
+                                        <span>{{ __('attendance.badge_dp_committed') }}</span>
+                                    </span>
+                                @else
+                                    <span title="{{ __('attendance.tooltip_provisional_dp') }}"
+                                          class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-3xs font-semibold bg-purple-500/10 text-purple-700 dark:text-purple-300 border border-purple-500/20 mt-1">
+                                        <svg class="w-3.5 h-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                            <path d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09z" />
+                                        </svg>
+                                        <span>{{ __('attendance.badge_provisional_dp') }}</span>
+                                    </span>
+                                @endif
                             @endif
                         </td>
                         <td class="font-mono text-xs text-ink">

@@ -10,6 +10,7 @@ use App\Models\PublicHoliday;
 use App\Models\User;
 use App\Models\WorkSchedule;
 use App\Services\AttendanceGeofenceService;
+use App\Services\LeaveLedgerService;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
@@ -20,7 +21,8 @@ use Illuminate\View\View;
 class DashboardController extends Controller
 {
     public function __construct(
-        private readonly AttendanceGeofenceService $geofenceService
+        private readonly AttendanceGeofenceService $geofenceService,
+        private readonly LeaveLedgerService $leaveLedgerService
     ) {}
     /**
      * Resolve today's cross-department work schedules for the active tenant company.
@@ -152,6 +154,13 @@ class DashboardController extends Controller
         $todayAttendance = null;
         $todaySchedule = null;
         $todaySessionsState = null;
+        $annualLeaveBalance = 0.0;
+        $dpBalance = 0.0;
+
+        if ($employee) {
+            $annualLeaveBalance = $this->leaveLedgerService->getBalance($employee, 'AL');
+            $dpBalance = $this->leaveLedgerService->getBalance($employee, 'DP');
+        }
 
         if (! $isSuperAdmin && $employee) {
             $todayAttendance = Attendance::withoutGlobalScopes()
@@ -171,7 +180,7 @@ class DashboardController extends Controller
                     ->first();
             }
 
-            $todaySchedule = $this->geofenceService->resolveTodaySchedule($employee, $nowWib);
+            $todaySchedule = $this->geofenceService->resolveTodaySchedule($employee, $nowWib, false);
             $todaySessionsState = $this->geofenceService->resolveTodaySessionsState($employee, $nowWib);
         }
 
@@ -282,6 +291,8 @@ class DashboardController extends Controller
             'todayAttendance',
             'todaySchedule',
             'todaySessionsState',
+            'annualLeaveBalance',
+            'dpBalance',
             'isHoliday',
             'managerStats',
             'subordinates',

@@ -152,4 +152,12 @@ class Department extends Model
             'id'
         );
     }
+
+    /**
+     * Get the SPK SMART criteria weights configured for the department.
+     */
+    public function smartWeights(): HasMany
+    {
+        return $this->hasMany(SmartDepartmentWeight::class);
+    }
 }
