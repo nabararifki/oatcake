@@ -27,9 +27,12 @@ OATCAKE adalah platform manajemen SDM dan penjadwalan rotasi kerja 24 jam non-st
 - **Proteksi Kuota Storage Tenant & Retensi Otomatis (Auto-Erase)**: Pembatasan kuota penyimpanan berkas per properti (`storage_limit_mb`) yang dikendalikan oleh *Super Admin*, kebijakan retensi swafoto berdurasi fleksibel (1, 3, 6, atau 12 bulan) dengan pembersihan fisik terjadwal harian (`attendance:prune-photos`) untuk mencegah lonjakan kapasitas disk server.
 - **Presensi Dinas Luar & Konsol Verifikasi Manajer**: Alur presensi tugas luar jangkauan geofence hotel dengan klasifikasi kategori, destinasi, dan catatan tujuan, serta konsol persetujuan/penolakan berjenjang bagi manajer dengan inspeksi deviasi spasial berbasis peta interaktif (Leaflet.js).
 - **Rekonsiliasi Riwayat Presensi Administratif**: Log audit presensi komprehensif (`/attendance`) dengan inspeksi berkas swafoto beresolusi penuh via *secure streaming endpoint*, serta hak penuh bagi *Administrator* untuk merevisi cap waktu/status maupun menghapus rekod presensi beserta pembersihan fisik berkas swafoto dari disk privat.
-- **Pelacakan Otomatis DP Libur Nasional (Provisional DP)**: Integrasi kalender hari libur nasional (`public_holidays`) dengan penandaan otomatis status *Provisional DP* bagi staf yang bertugas pada hari libur resmi tanpa mengganggu integritas buku besar cuti (*ledger isolation*).
-- **Tata Kelola Master Departemen & Pengaturan Properti**: Manajemen departemen mandiri dengan konfigurasi operasional 24 jam, batas minimum staf per shift, dan proteksi hapus aman (*safe delete*), serta halaman pengaturan properti untuk koordinat geofence, zona waktu Indonesia (WIB/WITA/WIT), dan pemantau kuota penyimpanan dinamis.
-- **Manajemen Saldo DP (Day of Payment)**: Pengelolaan hak libur pengganti dan kompensasi shift untuk penugasan pada hari libur nasional atau lembur operasional.
+- **Pelacakan Otomatis Provisional DP & Two-Phase DP Commit**: Integrasi kalender hari libur per perusahaan (`public_holidays`) dengan penandaan otomatis *Provisional DP* saat *clock-in* pada tanggal merah/event khusus, diikuti konversi idempoten menjadi kredit resmi `+1.0` hari DP pada buku besar cuti (*Two-Phase DP Commit*) setelah staf menyelesaikan minimal 4 jam kerja.
+- **Auto-Assign Shift Terdekat & Proteksi Cuti pada Presensi**: Penugasan otomatis shift operasional terdekat berbasis jarak waktu sirkular 24 jam saat staf melakukan *clock-in* tanpa jadwal atau pada hari libur non-cuti, disertai pemblokiran otomatis *clock-in* apabila staf sedang dalam masa cuti yang telah disetujui.
+- **Tata Kelola Master Departemen, Kalender Libur & Pengaturan Properti**: Manajemen departemen mandiri dengan konfigurasi operasional 24 jam, batas minimum staf per shift, dan proteksi hapus aman (*safe delete*), serta halaman pengaturan properti untuk koordinat geofence, zona waktu Indonesia (WIB/WITA/WIT), pemantau kuota penyimpanan dinamis, dan pengelolaan kalender hari libur nasional maupun event khusus properti secara terisolasi per tenant.
+- **Manajemen Cuti, Buku Besar Append-Only & Saldo DP (FIFO)**: Modul pengajuan cuti mandiri (`/leave`) untuk 5 tipe standar (`AL`, `DP`, `SL`, `SPL`, `UL`) dengan pratinjau hari kerja efektif berbasis roster terpublikasi (mengecualikan hari `OFF`), reservasi kuota otomatis, buku besar saldo *append-only* dengan deplesi FIFO (*First-Expiring, First-Out*), lampiran bukti terenkapsulasi di penyimpanan privat, akrual tahunan (`leave:accrue-annual`) dan pembersihan saldo kedaluwarsa (`leave:prune-expired`) harian, serta konsol rekonsiliasi saldo manual HR.
+- **Alur Persetujuan Cuti Berjenjang 2-Tier & Sinkronisasi Roster Terkunci**: Persetujuan bertingkat Tier 1 (Manajer Departemen) dan Tier 2 (Final HR/Admin) lengkap dengan jejak audit (`leave_request_approvals`), pencegahan *self-approval*, penguncian otomatis jadwal `LEAVE:` pada matriks roster, serta dukungan pengeditan maupun pembatalan cuti disetujui dengan *append-only refund*.
+- **SPK Metode SMART untuk Pengambilan Keputusan Cuti**: Mesin Sistem Pendukung Keputusan berbasis metode *Simple Multi-Attribute Rating Technique* (SMART) menggunakan 5 kriteria telemetri kuantitatif (`C1`–`C5`), konfigurasi bobot dinamis per departemen, **Mode B** (evaluasi mandiri), dan **Mode A** (komparasi multi-staf & simulasi kuota formasi departemen untuk pengajuan yang beririsan tanggal).
 - **Dukungan Multi-Bahasa**: Pilihan bahasa Indonesia dan Inggris dengan peralihan instan dan paritas kamus 100%.
 
 ---
@@ -141,6 +144,27 @@ php artisan test --filter CompanySettingsTest
 
 # Pengujian pelacakan otomatis provisional DP hari libur
 php artisan test --filter ProvisionalDpTrackerTest
+
+# Pengujian konversi Two-Phase DP Commit ke buku besar cuti
+php artisan test --filter TwoPhaseDpCommitTest
+
+# Pengujian auto-assign shift terdekat saat clock-in tanpa jadwal
+php artisan test --filter AutoAssignNearestShiftTest
+
+# Pengujian manajemen kalender hari libur & event khusus per perusahaan
+php artisan test --filter CompanyHolidayManagementTest
+
+# Pengujian buku besar cuti append-only, akrual, FIFO & kedaluwarsa
+php artisan test --filter LeaveLedgerTest
+
+# Pengujian pengajuan cuti mandiri, hari efektif & pembatalan
+php artisan test --filter LeaveRequestTest
+
+# Pengujian alur persetujuan cuti berjenjang 2-Tier & penguncian roster
+php artisan test --filter LeaveApprovalWorkflowTest
+
+# Pengujian SPK metode SMART (kriteria C1-C5, Mode A/B & bobot dinamis)
+php artisan test --filter SmartDecisionEngineTest
 
 # Pengujian paritas lokalisasi dwi-bahasa
 php artisan test --filter LangParityTest
