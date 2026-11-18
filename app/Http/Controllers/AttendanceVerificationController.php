@@ -5,21 +5,26 @@ namespace App\Http\Controllers;
 use App\Models\Attendance;
 use App\Models\Company;
 use App\Models\Department;
+use App\Services\AuditTrailService;
 use App\Services\DpCommitService;
+use App\Services\WebPushService;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\View\View;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
+use Throwable;
 
 class AttendanceVerificationController extends Controller
 {
     public function __construct(
-        private readonly DpCommitService $dpCommitService
+        private readonly DpCommitService $dpCommitService,
+        private readonly ?WebPushService $webPushService = null
     ) {}
 
     /**
@@ -84,9 +89,13 @@ class AttendanceVerificationController extends Controller
 
         $query = $baseScopedQuery()
             ->with([
-                'employee.user',
-                'employee.department',
-                'workSchedule.shift',
+                'employee' => fn ($eq) => $eq->withoutGlobalScopes()->with([
+                    'user',
+                    'department' => fn ($dq) => $dq->withoutGlobalScopes(),
+                ]),
+                'workSchedule' => fn ($wq) => $wq->withoutGlobalScopes()->with([
+                    'shift' => fn ($sq) => $sq->withoutGlobalScopes(),
+                ]),
                 'verifier',
             ]);
 
@@ -146,6 +155,22 @@ class AttendanceVerificationController extends Controller
         $this->dpCommitService->attemptCommitFromAttendance($attendance, $request->user());
         $attendance->refresh();
 
+        $this->notifyAttendanceVerificationOutcome($attendance, true);
+
+        app(AuditTrailService::class)->record(
+            'verified',
+            $attendance,
+            ['status' => 'pending_verification'],
+            [
+                'status' => $attendance->status,
+                'verified_by' => $request->user()->id,
+            ],
+            "Outside-duty attendance #{$attendance->id} verified ({$attendance->status})",
+            ['action' => 'approve'],
+            $request->user(),
+            (int) $attendance->company_id
+        );
+
         if ($request->expectsJson()) {
             return response()->json([
                 'success' => true,
@@ -184,6 +209,23 @@ class AttendanceVerificationController extends Controller
             'verified_at' => Carbon::now('Asia/Jakarta'),
             'rejection_reason' => $validated['rejection_reason'],
         ]);
+
+        $this->notifyAttendanceVerificationOutcome($attendance, false, $validated['rejection_reason']);
+
+        app(AuditTrailService::class)->record(
+            'rejected',
+            $attendance,
+            ['status' => 'pending_verification'],
+            [
+                'status' => 'rejected',
+                'verified_by' => $request->user()->id,
+                'rejection_reason' => $validated['rejection_reason'],
+            ],
+            "Outside-duty attendance #{$attendance->id} rejected",
+            ['action' => 'reject'],
+            $request->user(),
+            (int) $attendance->company_id
+        );
 
         if ($request->expectsJson()) {
             return response()->json([
@@ -230,5 +272,47 @@ class AttendanceVerificationController extends Controller
             'Content-Type' => $mimeType,
             'Cache-Control' => 'private, max-age=3600',
         ]);
+    }
+
+    /**
+     * Notify the employee when their outside-duty attendance has been approved or rejected.
+     */
+    private function notifyAttendanceVerificationOutcome(
+        Attendance $attendance,
+        bool $approved,
+        ?string $rejectionReason = null
+    ): void {
+        try {
+            $attendance->loadMissing('employee.user');
+            $staffUser = $attendance->employee?->user;
+            if ($staffUser === null || ! $staffUser->is_active) {
+                return;
+            }
+
+            $location = $attendance->outside_location_name ?: '-';
+            $push = $this->webPushService ?? app(WebPushService::class);
+
+            $push->notifyUser(
+                $staffUser,
+                'attendance_verified',
+                $approved
+                    ? __('pwa.notif_attendance_approved_title')
+                    : __('pwa.notif_attendance_rejected_title'),
+                $approved
+                    ? __('pwa.notif_attendance_approved_body', ['location' => $location])
+                    : __('pwa.notif_attendance_rejected_body', [
+                        'location' => $location,
+                        'reason' => $rejectionReason ?? '-',
+                    ]),
+                route('attendance.index', [], false),
+                [
+                    'attendance_id' => $attendance->id,
+                    'attendance_uuid' => $attendance->uuid,
+                    'verification_status' => $attendance->status,
+                ]
+            );
+        } catch (Throwable $e) {
+            Log::warning('Failed to dispatch attendance verification notification: '.$e->getMessage());
+        }
     }
 }

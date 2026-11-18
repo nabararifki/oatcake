@@ -28,6 +28,32 @@
              lat: '{{ old('latitude', $company?->latitude ?? -6.2000000) }}',
              lng: '{{ old('longitude', $company?->longitude ?? 106.8166667) }}',
              radius: {{ (int) old('geofence_radius', $company?->geofence_radius ?? $company?->geofence_radius_meters ?? 100) }},
+             autoAssignShiftOnClockIn: {{ Js::from((bool) old('auto_assign_shift_on_clock_in', $company?->auto_assign_shift_on_clock_in ?? true)) }},
+             activeCategory: 'all',
+             searchQuery: '',
+             sectionKeywords: {
+                 profile: @js(strtolower(__('company.section_profile') . ' ' . __('company.section_profile_desc') . ' ' . __('company.name') . ' ' . __('company.code') . ' ' . __('company.address') . ' ' . __('company.timezone') . ' profil properti tenant kode alamat zona waktu')),
+                 attendance: @js(strtolower(__('company.section_geofence') . ' ' . __('company.section_geofence_desc') . ' ' . __('company.geofence_preview_title') . ' ' . __('company.auto_assign_shift_label') . ' ' . __('company.auto_assign_shift_desc') . ' ' . __('company.latitude') . ' ' . __('company.longitude') . ' ' . __('company.geofence_radius') . ' presensi geofence gps radar auto-schedule shift clock-in')),
+                 storage: @js(strtolower(__('company.storage_usage_heading') . ' ' . __('company.storage_usage_desc') . ' ' . __('company.photo_retention_label') . ' ' . __('company.storage_limit_label') . ' penyimpanan retensi foto storage quota')),
+                 holidays: @js(strtolower(__('company.holiday_section_title') . ' ' . __('company.holiday_section_desc') . ' hari libur nasional event dp calendar holiday'))
+             },
+             matchesSection(cat) {
+                 if (this.activeCategory !== 'all' && this.activeCategory !== cat) {
+                     return false;
+                 }
+                 const q = (this.searchQuery || '').trim().toLowerCase();
+                 if (q === '') {
+                     return true;
+                 }
+                 return (this.sectionKeywords[cat] || '').includes(q);
+             },
+             get visibleSectionCount() {
+                 return ['profile', 'attendance', 'storage', 'holidays'].filter((c) => this.matchesSection(c)).length;
+             },
+             resetFilters() {
+                 this.activeCategory = 'all';
+                 this.searchQuery = '';
+             },
              detectingGps: false,
              gpsNotice: '',
              gpsError: false,
@@ -76,14 +102,104 @@
         @endif
 
         @if ($company)
-            <form method="POST" action="{{ route('settings.company.update') }}" class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <!-- Bilah Pencarian & Tab Kategori Pengaturan Perusahaan -->
+            <div class="bg-surface border border-line rounded-2xl p-4 shadow-sm space-y-3">
+                <div class="flex flex-col sm:flex-row sm:items-center gap-3">
+                    <div class="relative flex-1">
+                        <span class="pointer-events-none absolute inset-y-0 left-3.5 flex items-center text-ink-muted">
+                            <svg class="w-4 h-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" aria-hidden="true">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z" />
+                            </svg>
+                        </span>
+                        <input id="company-settings-search"
+                               type="text"
+                               x-model.debounce.150ms="searchQuery"
+                               placeholder="{{ __('company.search_placeholder') }}"
+                               class="w-full rounded-2xl border border-line bg-surface-muted pl-10 pr-10 py-2 text-xs sm:text-sm text-ink placeholder:text-ink-faint focus:outline-none focus:ring-2 focus:ring-accent" />
+                        <button type="button"
+                                x-show="searchQuery !== ''"
+                                x-cloak
+                                @click="searchQuery = ''"
+                                title="{{ __('company.search_clear') }}"
+                                aria-label="{{ __('company.search_clear') }}"
+                                class="absolute inset-y-0 right-2.5 flex items-center text-ink-muted hover:text-ink cursor-pointer">
+                            <svg class="w-4 h-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" aria-hidden="true">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" />
+                            </svg>
+                        </button>
+                    </div>
+
+                    <div class="text-2xs font-mono font-semibold text-ink-muted shrink-0 px-3 py-1.5 rounded-xl bg-surface-muted border border-line text-center">
+                        <span x-text="visibleSectionCount">4</span> / 4
+                    </div>
+                </div>
+
+                <div class="flex flex-wrap items-center gap-2">
+                    <button type="button"
+                            @click="activeCategory = 'all'"
+                            :class="activeCategory === 'all' ? 'bg-accent text-accent-fg border-accent shadow-xs' : 'bg-surface-muted text-ink hover:bg-surface border-line'"
+                            class="px-3.5 py-1.5 rounded-xl border text-xs font-semibold transition-colors cursor-pointer">
+                        {{ __('company.cat_all') }}
+                    </button>
+                    <button type="button"
+                            @click="activeCategory = 'profile'"
+                            :class="activeCategory === 'profile' ? 'bg-accent text-accent-fg border-accent shadow-xs' : 'bg-surface-muted text-ink hover:bg-surface border-line'"
+                            class="px-3.5 py-1.5 rounded-xl border text-xs font-semibold transition-colors cursor-pointer">
+                        {{ __('company.cat_profile') }}
+                    </button>
+                    <button type="button"
+                            @click="activeCategory = 'attendance'"
+                            :class="activeCategory === 'attendance' ? 'bg-accent text-accent-fg border-accent shadow-xs' : 'bg-surface-muted text-ink hover:bg-surface border-line'"
+                            class="px-3.5 py-1.5 rounded-xl border text-xs font-semibold transition-colors cursor-pointer">
+                        {{ __('company.cat_attendance') }}
+                    </button>
+                    <button type="button"
+                            @click="activeCategory = 'storage'"
+                            :class="activeCategory === 'storage' ? 'bg-accent text-accent-fg border-accent shadow-xs' : 'bg-surface-muted text-ink hover:bg-surface border-line'"
+                            class="px-3.5 py-1.5 rounded-xl border text-xs font-semibold transition-colors cursor-pointer">
+                        {{ __('company.cat_storage') }}
+                    </button>
+                    <button type="button"
+                            @click="activeCategory = 'holidays'"
+                            :class="activeCategory === 'holidays' ? 'bg-accent text-accent-fg border-accent shadow-xs' : 'bg-surface-muted text-ink hover:bg-surface border-line'"
+                            class="px-3.5 py-1.5 rounded-xl border text-xs font-semibold transition-colors cursor-pointer">
+                        {{ __('company.cat_holidays') }}
+                    </button>
+                </div>
+            </div>
+
+            <!-- Empty Search State -->
+            <div x-show="visibleSectionCount === 0"
+                 x-cloak
+                 class="bg-surface border border-dashed border-line-strong rounded-2xl p-8 text-center space-y-3">
+                <div class="mx-auto w-10 h-10 rounded-full bg-surface-muted border border-line flex items-center justify-center text-ink-muted">
+                    <svg class="w-5 h-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.75" stroke="currentColor" aria-hidden="true">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z" />
+                    </svg>
+                </div>
+                <div class="space-y-1">
+                    <h3 class="text-sm font-bold text-ink">{{ __('company.search_empty_title') }}</h3>
+                    <p class="text-xs text-ink-muted max-w-md mx-auto">{{ __('company.search_empty_desc') }}</p>
+                </div>
+                <button type="button"
+                        @click="resetFilters()"
+                        class="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl border border-line bg-surface-muted hover:bg-surface text-xs font-semibold text-ink transition cursor-pointer">
+                    {{ __('company.search_reset_btn') }}
+                </button>
+            </div>
+
+            <form method="POST"
+                  action="{{ route('settings.company.update') }}"
+                  x-show="matchesSection('profile') || matchesSection('attendance') || matchesSection('storage')"
+                  class="grid grid-cols-1 lg:grid-cols-3 gap-6">
                 @csrf
                 @method('PUT')
 
-                <!-- Kolom Kiri: Profil Properti & Zona Waktu + Koordinat GPS -->
-                <div class="lg:col-span-2 space-y-6">
-                    <!-- Kartu Profil Properti -->
-                    <div class="bg-surface border border-line rounded-2xl p-6 shadow-sm space-y-4">
+                <!-- Kolom Kiri: Profil Properti, Presensi & Geofence, Penyimpanan -->
+                <div :class="matchesSection('attendance') ? 'lg:col-span-2' : 'lg:col-span-3'" class="lg:col-span-2 space-y-6">
+                    <!-- Kategori 1: Profil Properti -->
+                    <div x-show="matchesSection('profile')"
+                         class="bg-surface border border-line rounded-2xl p-6 shadow-sm space-y-4">
                         <div class="border-b border-line pb-3">
                             <h3 class="text-sm font-bold text-ink">{{ __('company.section_profile') }}</h3>
                             <p class="text-xs text-ink-muted mt-0.5">{{ __('company.section_profile_desc') }}</p>
@@ -150,8 +266,9 @@
                         </div>
                     </div>
 
-                    <!-- Kartu Penyimpanan Bukti Presensi & Kebijakan Retensi -->
-                    <div class="bg-surface border border-line rounded-2xl p-6 shadow-sm space-y-4">
+                    <!-- Kategori 3: Penyimpanan Bukti Presensi & Kebijakan Retensi -->
+                    <div x-show="matchesSection('storage')"
+                         class="bg-surface border border-line rounded-2xl p-6 shadow-sm space-y-4">
                         <div class="border-b border-line pb-3">
                             <h3 class="text-sm font-bold text-ink">{{ __('company.storage_usage_heading') }}</h3>
                             <p class="text-xs text-ink-muted mt-0.5">{{ __('company.storage_usage_desc') }}</p>
@@ -224,8 +341,9 @@
                         </div>
                     </div>
 
-                    <!-- Kartu Koordinat GPS & Radius Geofence -->
-                    <div class="bg-surface border border-line rounded-2xl p-6 shadow-sm space-y-4">
+                    <!-- Kategori 2: Presensi, Geofence GPS, & Kebijakan Penjadwalan -->
+                    <div x-show="matchesSection('attendance')"
+                         class="bg-surface border border-line rounded-2xl p-6 shadow-sm space-y-4">
                         <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border-b border-line pb-3">
                             <div>
                                 <h3 class="text-sm font-bold text-ink">{{ __('company.section_geofence') }}</h3>
@@ -314,17 +432,47 @@
                             <p class="text-2xs text-ink-muted">{{ __('company.geofence_radius_hint') }}</p>
                         </div>
 
-                        <div class="flex items-center justify-end pt-3 border-t border-line">
-                            <button type="submit"
-                                    class="px-5 py-2.5 rounded-2xl bg-accent text-accent-fg text-xs font-semibold shadow-md shadow-accent/20 hover:opacity-95 transition-all cursor-pointer">
-                                {{ __('company.btn_save') }}
-                            </button>
+                        <!-- Toggle Penjadwalan Otomatis saat Presensi (Auto-Assign Shift on Clock-In) -->
+                        <div class="pt-4 border-t border-line flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                            <div class="space-y-1">
+                                <div class="flex items-center gap-2 flex-wrap">
+                                    <label for="company-auto-assign-shift" class="text-xs font-bold text-ink cursor-pointer">
+                                        {{ __('company.auto_assign_shift_label') }}
+                                    </label>
+                                    <span class="inline-flex items-center rounded-full px-2.5 py-0.5 text-2xs font-semibold border"
+                                          :class="autoAssignShiftOnClockIn ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border-emerald-500/30' : 'bg-amber-500/10 text-amber-800 dark:text-amber-300 border-amber-500/30'"
+                                          x-text="autoAssignShiftOnClockIn ? @js(__('company.toggle_active_badge')) : @js(__('company.toggle_inactive_badge'))"></span>
+                                </div>
+                                <p class="text-xs text-ink-muted leading-relaxed">
+                                    {{ __('company.auto_assign_shift_desc') }}
+                                </p>
+                            </div>
+
+                            <div class="shrink-0 flex items-center">
+                                <input type="hidden" name="auto_assign_shift_on_clock_in" value="0" />
+                                <label for="company-auto-assign-shift" class="relative inline-flex items-center cursor-pointer">
+                                    <input id="company-auto-assign-shift"
+                                           type="checkbox"
+                                           name="auto_assign_shift_on_clock_in"
+                                           value="1"
+                                           x-model="autoAssignShiftOnClockIn"
+                                           class="sr-only peer" />
+                                    <div class="w-11 h-6 bg-surface-muted border border-line-strong peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-accent rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[3px] after:start-[3px] after:bg-white after:border after:border-line after:rounded-full after:h-4.5 after:w-4.5 after:transition-all peer-checked:bg-accent"></div>
+                                </label>
+                            </div>
                         </div>
+                    </div>
+
+                    <div class="flex items-center justify-end bg-surface border border-line rounded-2xl px-6 py-4 shadow-sm">
+                        <button type="submit"
+                                class="px-5 py-2.5 rounded-2xl bg-accent text-accent-fg text-xs font-semibold shadow-md shadow-accent/20 hover:opacity-95 transition-all cursor-pointer">
+                            {{ __('company.btn_save') }}
+                        </button>
                     </div>
                 </div>
 
                 <!-- Kolom Kanan: Visualisasi Radar Radius Geofence -->
-                <div class="space-y-6">
+                <div x-show="matchesSection('attendance')" class="space-y-6">
                     <div class="bg-surface border border-line rounded-2xl p-6 shadow-sm flex flex-col justify-between space-y-4">
                         <div>
                             <h3 class="text-sm font-bold text-ink">{{ __('company.geofence_preview_title') }}</h3>
@@ -380,7 +528,8 @@
                     ->orderBy('holiday_date')
                     ->get();
             @endphp
-            <div x-data="{
+            <div x-show="matchesSection('holidays')"
+                 x-data="{
                     editHolidayId: null,
                     editHolidayDate: '',
                     editHolidayName: '',

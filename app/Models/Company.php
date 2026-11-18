@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\RecordsAuditTrail;
 use Database\Seeders\PublicHolidaySeeder;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -12,7 +13,7 @@ use Illuminate\Support\Facades\Storage;
 
 class Company extends Model
 {
-    use HasFactory, HasUuids;
+    use HasFactory, HasUuids, RecordsAuditTrail;
 
     /**
      * The attributes that are mass assignable.
@@ -28,6 +29,7 @@ class Company extends Model
         'longitude',
         'geofence_radius_meters',
         'geofence_radius',
+        'auto_assign_shift_on_clock_in',
         'timezone',
         'allowed_email_domain',
         'logo_url',
@@ -49,6 +51,7 @@ class Company extends Model
             'longitude' => 'decimal:7',
             'geofence_radius_meters' => 'integer',
             'geofence_radius' => 'integer',
+            'auto_assign_shift_on_clock_in' => 'boolean',
             'photo_retention_months' => 'integer',
             'storage_limit_mb' => 'integer',
             'is_active' => 'boolean',

@@ -25,7 +25,7 @@ class LeaveType extends Model
             'is_paid' => true,
             'requires_quota' => true,
             'requires_attachment' => false,
-            'default_annual_quota' => 12.00,
+            'default_annual_quota' => 12,
             'validity_months' => 12,
             'is_active' => true,
         ],
@@ -100,7 +100,7 @@ class LeaveType extends Model
             'is_paid' => 'boolean',
             'requires_quota' => 'boolean',
             'requires_attachment' => 'boolean',
-            'default_annual_quota' => 'decimal:2',
+            'default_annual_quota' => 'integer',
             'validity_months' => 'integer',
             'is_active' => 'boolean',
         ];
@@ -188,7 +188,7 @@ class LeaveType extends Model
     /**
      * Resolve the effective default annual quota for a given company (falling back to leave_types.default_annual_quota).
      */
-    public function getEffectiveAnnualQuota(?int $companyId = null): ?float
+    public function getEffectiveAnnualQuota(?int $companyId = null): ?int
     {
         if ($companyId !== null) {
             $setting = $this->relationLoaded('companySettings')
@@ -200,12 +200,12 @@ class LeaveType extends Model
 
             if ($setting !== null) {
                 return $setting->default_annual_quota !== null
-                    ? round((float) $setting->default_annual_quota, 2)
-                    : ($this->default_annual_quota !== null ? round((float) $this->default_annual_quota, 2) : null);
+                    ? (int) round((float) $setting->default_annual_quota)
+                    : ($this->default_annual_quota !== null ? (int) round((float) $this->default_annual_quota) : null);
             }
         }
 
-        return $this->default_annual_quota !== null ? round((float) $this->default_annual_quota, 2) : null;
+        return $this->default_annual_quota !== null ? (int) round((float) $this->default_annual_quota) : null;
     }
 
     /**

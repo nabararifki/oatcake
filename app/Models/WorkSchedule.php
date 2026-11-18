@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\RecordsAuditTrail;
 use App\Traits\BelongsToCompany;
 use Carbon\Carbon;
 use Carbon\CarbonInterface;
@@ -14,7 +15,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class WorkSchedule extends Model
 {
-    use BelongsToCompany, HasFactory, HasUuids;
+    use BelongsToCompany, HasFactory, HasUuids, RecordsAuditTrail;
 
     /**
      * The attributes that are mass assignable.

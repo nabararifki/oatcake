@@ -121,6 +121,72 @@ class SmartDecisionService
     }
 
     /**
+     * Batch-load or provision SPK SMART criteria weights for multiple departments in one query.
+     *
+     * @param  Collection<int, Department>  $departments
+     * @return array<int, Collection<int, SmartDepartmentWeight>>
+     */
+    public function getOrCreateWeightsForDepartments(Collection $departments): array
+    {
+        if ($departments->isEmpty()) {
+            return [];
+        }
+
+        $deptIds = $departments->pluck('id')->all();
+        $grouped = SmartDepartmentWeight::withoutGlobalScopes()
+            ->whereIn('department_id', $deptIds)
+            ->get()
+            ->groupBy('department_id');
+
+        $expectedCount = count(self::CRITERIA_DEFINITIONS);
+        $criteriaKeys = array_keys(self::CRITERIA_DEFINITIONS);
+        $totalDefault = array_sum(array_column(self::CRITERIA_DEFINITIONS, 'default_weight'));
+        $nowStr = Carbon::now('Asia/Jakarta')->toDateTimeString();
+        $rowsToInsert = [];
+
+        foreach ($departments as $dept) {
+            $deptRows = ($grouped->get($dept->id) ?? collect())->keyBy('criteria_code');
+
+            if ($deptRows->count() < $expectedCount) {
+                foreach (self::CRITERIA_DEFINITIONS as $code => $definition) {
+                    if (! $deptRows->has($code)) {
+                        $rawWeight = (int) $definition['default_weight'];
+                        $normalized = round($rawWeight / max(1, $totalDefault), 4);
+                        $rowsToInsert[] = [
+                            'uuid' => (string) \Illuminate\Support\Str::uuid(),
+                            'company_id' => $dept->company_id,
+                            'department_id' => $dept->id,
+                            'criteria_code' => $code,
+                            'raw_weight' => $rawWeight,
+                            'normalized_weight' => $normalized,
+                            'created_at' => $nowStr,
+                            'updated_at' => $nowStr,
+                        ];
+                    }
+                }
+            }
+        }
+
+        if ($rowsToInsert !== []) {
+            SmartDepartmentWeight::insert($rowsToInsert);
+            $grouped = SmartDepartmentWeight::withoutGlobalScopes()
+                ->whereIn('department_id', $deptIds)
+                ->get()
+                ->groupBy('department_id');
+        }
+
+        $result = [];
+        foreach ($departments as $dept) {
+            $deptRows = ($grouped->get($dept->id) ?? collect())->keyBy('criteria_code');
+            $result[$dept->id] = collect($criteriaKeys)
+                ->map(fn (string $code): SmartDepartmentWeight => $deptRows->get($code))
+                ->values();
+        }
+
+        return $result;
+    }
+
+    /**
      * Validate, normalize, and persist dynamic department SMART weights,
      * then automatically recalculate all pending leave requests in that department.
      *
@@ -173,24 +239,7 @@ class SmartDecisionService
         }
 
         // Calculate normalized weights w'_j = round(w_j / sum(w_k), 4)
-        $normalizedWeights = [];
-        $runningSum = 0.0;
-        $lastNonZeroCode = null;
-
-        foreach ($rawWeights as $code => $raw) {
-            $norm = $raw > 0 ? round($raw / $sumRaw, 4) : 0.0;
-            $normalizedWeights[$code] = $norm;
-            $runningSum = round($runningSum + $norm, 4);
-            if ($raw > 0) {
-                $lastNonZeroCode = $code;
-            }
-        }
-
-        // Ensure exact 1.0000 sum across normalized weights when rounding
-        $drift = round(1.0000 - $runningSum, 4);
-        if ($drift !== 0.0 && $lastNonZeroCode !== null) {
-            $normalizedWeights[$lastNonZeroCode] = round($normalizedWeights[$lastNonZeroCode] + $drift, 4);
-        }
+        $normalizedWeights = $this->normalizeWeights($rawWeights);
 
         return DB::transaction(function () use ($department, $rawWeights, $normalizedWeights, $actor): Collection {
             $updatedCollection = collect();
@@ -240,10 +289,18 @@ class SmartDecisionService
      * Mode B (Evaluasi Mandiri): Calculate C1..C5 telemetry, SMART utilities, weighted contributions,
      * final preference score U(a_i), and recommendation category for a single leave request.
      *
+     * @param  Collection<string, SmartDepartmentWeight>|null  $preloadedWeights
+     * @param  list<int>|null  $preloadedDeptEmployeeIds
+     * @param  array<string, int>  $availableByDateCache
      * @return array<string, mixed>
      */
-    public function evaluateSingle(LeaveRequest $leaveRequest, bool $persist = true): array
-    {
+    public function evaluateSingle(
+        LeaveRequest $leaveRequest,
+        bool $persist = true,
+        ?Collection $preloadedWeights = null,
+        ?array $preloadedDeptEmployeeIds = null,
+        array &$availableByDateCache = []
+    ): array {
         $leaveRequest->loadMissing([
             'employee' => fn ($q) => $q->withoutGlobalScopes()->with(['department' => fn ($dq) => $dq->withoutGlobalScopes()]),
             'leaveType' => fn ($q) => $q->withoutGlobalScopes(),
@@ -262,9 +319,16 @@ class SmartDecisionService
             ];
         }
 
-        $weights = $this->getOrCreateDepartmentWeights($department)->keyBy('criteria_code');
+        $weights = $preloadedWeights ?? $this->getOrCreateDepartmentWeights($department)->keyBy('criteria_code');
 
-        $rawValues = $this->extractRawCriteriaValues($leaveRequest, $employee, $department, $leaveType);
+        $rawValues = $this->extractRawCriteriaValues(
+            $leaveRequest,
+            $employee,
+            $department,
+            $leaveType,
+            $preloadedDeptEmployeeIds,
+            $availableByDateCache
+        );
 
         $criteriaBreakdown = [];
         $totalScore = 0.0;
@@ -314,7 +378,7 @@ class SmartDecisionService
         ];
 
         if ($persist && $leaveRequest->exists) {
-            $leaveRequest->update([
+            $leaveRequest->updateQuietly([
                 'smart_score' => $finalScore,
                 'smart_metrics' => $payload,
             ]);
@@ -384,10 +448,28 @@ class SmartDecisionService
 
         $mode = $overlappingRequests->count() >= 2 ? 'A' : 'B';
 
+        // Pre-fetch department weights and active staff IDs once to avoid repeated N+1 queries across candidates
+        $departmentWeights = $this->getOrCreateDepartmentWeights($department)->keyBy('criteria_code');
+        $activeDeptEmployeeIds = Employee::withoutGlobalScopes()
+            ->where('company_id', $department->company_id)
+            ->where('department_id', $department->id)
+            ->where('status', 'active')
+            ->pluck('id')
+            ->all();
+        $totalDeptStaff = count($activeDeptEmployeeIds);
+        $c1DateCache = [];
+        $availableByDateCache = [];
+
         // Evaluate each candidate with the department's current weights
         $evaluatedById = [];
         foreach ($overlappingRequests as $req) {
-            $evaluatedById[$req->id] = $this->evaluateSingle($req, $req->isPending());
+            $evaluatedById[$req->id] = $this->evaluateSingle(
+                $req,
+                $req->isPending(),
+                $departmentWeights,
+                $activeDeptEmployeeIds,
+                $c1DateCache
+            );
         }
 
         // Sort candidates by smart_score DESC, created_at ASC, id ASC
@@ -411,15 +493,6 @@ class SmartDecisionService
 
         // Simulate departmental formation quota across ranked candidates
         $requiredStaff = max(1, (int) ($department->min_staff_per_shift ?? 1));
-        $activeDeptEmployeeIds = Employee::withoutGlobalScopes()
-            ->where('company_id', $department->company_id)
-            ->where('department_id', $department->id)
-            ->where('status', 'active')
-            ->pluck('id')
-            ->all();
-
-        $totalDeptStaff = count($activeDeptEmployeeIds);
-        $availableByDateCache = [];
         $simulatedApprovedByDate = [];
 
         $candidatesList = [];
@@ -483,7 +556,7 @@ class SmartDecisionService
                 'leave_type_name' => $candidate->leaveType?->name ?? '—',
                 'start_date' => $candStart->toDateString(),
                 'end_date' => $candEnd->toDateString(),
-                'total_days' => (float) $candidate->total_days,
+                'total_days' => (int) $candidate->total_days,
                 'smart_score' => (float) $eval['smart_score'],
                 'recommendation' => $eval['recommendation'],
                 'recommendation_label' => $eval['recommendation_label'],
@@ -505,7 +578,7 @@ class SmartDecisionService
             'leave_type_name' => $targetRequest->leaveType?->name ?? '—',
             'start_date' => $targetStart,
             'end_date' => $targetEnd,
-            'total_days' => (float) $targetRequest->total_days,
+            'total_days' => (int) $targetRequest->total_days,
             'department_id' => $department->id,
             'department_name' => $department->name,
             'min_staff_per_shift' => $requiredStaff,
@@ -525,13 +598,17 @@ class SmartDecisionService
     /**
      * Extract raw objective telemetry values C1..C5 from the database.
      *
+     * @param  list<int>|null  $preloadedDeptEmployeeIds
+     * @param  array<string, int>  $availableByDateCache
      * @return array{C1: float, C2: float, C3: float, C4: float, C5: float}
      */
     public function extractRawCriteriaValues(
         LeaveRequest $leaveRequest,
         Employee $employee,
         Department $department,
-        LeaveType $leaveType
+        LeaveType $leaveType,
+        ?array $preloadedDeptEmployeeIds = null,
+        array &$availableByDateCache = []
     ): array {
         $refDateTime = $leaveRequest->created_at
             ? Carbon::parse($leaveRequest->created_at)->setTimezone('Asia/Jakarta')
@@ -541,7 +618,15 @@ class SmartDecisionService
         $startDate = Carbon::parse($leaveRequest->start_date, 'Asia/Jakarta')->startOfDay();
         $endDate = Carbon::parse($leaveRequest->end_date, 'Asia/Jakarta')->startOfDay();
 
-        $c1 = $this->extractC1ManpowerCoverage($employee, $department, $startDate, $endDate, $leaveRequest->id);
+        $c1 = $this->extractC1ManpowerCoverage(
+            $employee,
+            $department,
+            $startDate,
+            $endDate,
+            $leaveRequest->id,
+            $preloadedDeptEmployeeIds,
+            $availableByDateCache
+        );
         $c2 = $this->extractC2BalanceExpiryProximity($employee, $leaveType, $refDate);
         $c3 = $this->extractC3AttendanceDiscipline($employee, $refDateTime);
         $c4 = $this->extractC4RecentLeaveFrequency($employee, $refDate, $leaveRequest->id);
@@ -558,15 +643,20 @@ class SmartDecisionService
 
     /**
      * C1: Manpower Coverage (Benefit [0, 100]).
+     *
+     * @param  list<int>|null  $preloadedDeptEmployeeIds
+     * @param  array<string, int>  $availableByDateCache
      */
     private function extractC1ManpowerCoverage(
         Employee $employee,
         Department $department,
         Carbon $startDate,
         Carbon $endDate,
-        ?int $excludeRequestId = null
+        ?int $excludeRequestId = null,
+        ?array $preloadedDeptEmployeeIds = null,
+        array &$availableByDateCache = []
     ): float {
-        $activeDeptEmployeeIds = Employee::withoutGlobalScopes()
+        $activeDeptEmployeeIds = $preloadedDeptEmployeeIds ?? Employee::withoutGlobalScopes()
             ->where('company_id', $employee->company_id)
             ->where('department_id', $department->id)
             ->where('status', 'active')
@@ -585,15 +675,20 @@ class SmartDecisionService
 
         while ($cursor->lessThanOrEqualTo($endDate)) {
             $dateStr = $cursor->toDateString();
+            $cacheKey = $dateStr.'|'.$employee->id.'|'.($excludeRequestId ?? '0');
 
-            $availableBeforeApplicant = $this->getAvailableDeptStaffBeforePendingOnDate(
-                $department,
-                $activeDeptEmployeeIds,
-                $totalDeptStaff,
-                $dateStr,
-                $employee->id,
-                $excludeRequestId
-            );
+            if (! array_key_exists($cacheKey, $availableByDateCache)) {
+                $availableByDateCache[$cacheKey] = $this->getAvailableDeptStaffBeforePendingOnDate(
+                    $department,
+                    $activeDeptEmployeeIds,
+                    $totalDeptStaff,
+                    $dateStr,
+                    $employee->id,
+                    $excludeRequestId
+                );
+            }
+
+            $availableBeforeApplicant = $availableByDateCache[$cacheKey];
 
             // Subtract 1 for the applicant requesting leave on this date
             $remaining = max(0, $availableBeforeApplicant - 1);
@@ -866,5 +961,520 @@ class SmartDecisionService
     private function clamp(float $value, float $min, float $max): float
     {
         return max($min, min($max, $value));
+    }
+
+    /**
+     * Normalize integer weights C1..C5 so normalized weights sum strictly to 1.0000.
+     *
+     * @param  array<string, int>  $rawWeights
+     * @return array<string, float>
+     */
+    private function normalizeWeights(array $rawWeights): array
+    {
+        $sumRaw = array_sum($rawWeights);
+        $normalizedWeights = [];
+        $runningSum = 0.0;
+        $lastNonZeroCode = null;
+
+        foreach (array_keys(self::CRITERIA_DEFINITIONS) as $code) {
+            $raw = (int) ($rawWeights[$code] ?? 0);
+            $norm = ($sumRaw > 0 && $raw > 0) ? round($raw / $sumRaw, 4) : 0.0;
+            $normalizedWeights[$code] = $norm;
+            $runningSum = round($runningSum + $norm, 4);
+            if ($raw > 0) {
+                $lastNonZeroCode = $code;
+            }
+        }
+
+        $drift = round(1.0000 - $runningSum, 4);
+        if ($drift !== 0.0 && $lastNonZeroCode !== null) {
+            $normalizedWeights[$lastNonZeroCode] = round($normalizedWeights[$lastNonZeroCode] + $drift, 4);
+        }
+
+        return $normalizedWeights;
+    }
+
+    /**
+     * Super Admin SPK SMART Debug & What-If Simulator (without mutating production records).
+     *
+     * @param  array<string, mixed>  $payload
+     * @return array<string, mixed>
+     */
+    public function simulateDebugScenario(array $payload): array
+    {
+        $weightsInput = is_array($payload['weights'] ?? null) ? $payload['weights'] : [];
+        $rawWeights = [];
+        $sumWeights = 0;
+
+        foreach (self::CRITERIA_DEFINITIONS as $code => $def) {
+            $val = array_key_exists($code, $weightsInput)
+                ? $weightsInput[$code]
+                : $def['default_weight'];
+
+            if (! is_numeric($val) || floor((float) $val) !== (float) $val) {
+                throw ValidationException::withMessages([
+                    'weights' => [__('leave.err_smart_weight_range')],
+                ]);
+            }
+
+            $intVal = (int) $val;
+            if ($intVal < 0 || $intVal > 100) {
+                throw ValidationException::withMessages([
+                    'weights' => [__('leave.err_smart_weight_range')],
+                ]);
+            }
+
+            $rawWeights[$code] = $intVal;
+            $sumWeights += $intVal;
+        }
+
+        if ($sumWeights <= 0) {
+            throw ValidationException::withMessages([
+                'weights' => [__('leave.err_smart_weights_zero_sum')],
+            ]);
+        }
+
+        if ($sumWeights !== 100) {
+            throw ValidationException::withMessages([
+                'weights' => [__('leave.err_smart_weights_must_equal_100')],
+            ]);
+        }
+
+        $normalizedWeights = $this->normalizeWeights($rawWeights);
+
+        $telemetry = null;
+        $inspectedCandidates = [];
+        $inspectedMinStaff = null;
+        $inspectedTotalStaff = null;
+
+        if (! empty($payload['leave_request_id']) || ! empty($payload['employee_id'])) {
+            $inspection = $this->inspectDatabaseTelemetry(
+                $payload['leave_request_id'] ?? null,
+                $payload['employee_id'] ?? null,
+                $rawWeights,
+                $normalizedWeights
+            );
+            $telemetry = $inspection['telemetry'];
+            $inspectedCandidates = $inspection['candidates'];
+            $inspectedMinStaff = $inspection['min_staff_per_shift'];
+            $inspectedTotalStaff = $inspection['total_department_staff'];
+        }
+
+        $rawCandidates = is_array($payload['candidates'] ?? null) && count($payload['candidates']) > 0
+            ? $payload['candidates']
+            : $inspectedCandidates;
+
+        if ($rawCandidates === []) {
+            throw ValidationException::withMessages([
+                'candidates' => [__('leave.debug_err_candidates_required')],
+            ]);
+        }
+
+        $minStaffPerShift = max(
+            1,
+            (int) ($payload['min_staff_per_shift'] ?? $inspectedMinStaff ?? 2)
+        );
+        $totalDeptStaff = max(
+            1,
+            (int) ($payload['total_department_staff'] ?? $inspectedTotalStaff ?? max($minStaffPerShift + 2, count($rawCandidates) + 1))
+        );
+
+        $evaluated = [];
+        foreach (array_values($rawCandidates) as $idx => $cand) {
+            $name = trim((string) ($cand['name'] ?? ('Kandidat #'.($idx + 1))));
+            if ($name === '') {
+                $name = 'Kandidat #'.($idx + 1);
+            }
+
+            $criteriaTrace = [];
+            $totalScore = 0.0;
+
+            foreach (self::CRITERIA_DEFINITIONS as $code => $def) {
+                $rawVal = (float) ($cand[$code] ?? 0.0);
+                $clamped = $this->clamp($rawVal, $def['min'], $def['max']);
+                $utility = $this->calculateUtility($rawVal, $def['min'], $def['max'], $def['type']);
+                $normWeight = $normalizedWeights[$code];
+                $weightedScore = round($normWeight * $utility, 2);
+                $totalScore += ($normWeight * $utility);
+
+                $formula = $def['type'] === 'cost'
+                    ? sprintf('((%.0f - %.2f) / (%.0f - %.0f)) * 100 = %.2f', $def['max'], $clamped, $def['max'], $def['min'], $utility)
+                    : sprintf('((%.2f - %.0f) / (%.0f - %.0f)) * 100 = %.2f', $clamped, $def['min'], $def['max'], $def['min'], $utility);
+
+                $criteriaTrace[$code] = [
+                    'code' => $code,
+                    'name' => $this->resolveCriterionLabel($code),
+                    'type' => $def['type'],
+                    'min' => $def['min'],
+                    'max' => $def['max'],
+                    'unit' => $def['unit'],
+                    'raw_value' => round($rawVal, 2),
+                    'clamped_value' => round($clamped, 2),
+                    'formula' => $formula,
+                    'utility' => round($utility, 2),
+                    'raw_weight' => $rawWeights[$code],
+                    'normalized_weight' => $normWeight,
+                    'weighted_score' => $weightedScore,
+                ];
+            }
+
+            $finalScore = round($totalScore, 2);
+            $recommendation = $this->resolveRecommendation($finalScore);
+
+            $evaluated[] = [
+                'input_index' => $idx,
+                'name' => $name,
+                'smart_score' => $finalScore,
+                'recommendation' => $recommendation,
+                'recommendation_label' => $this->resolveRecommendationLabel($recommendation),
+                'criteria' => $criteriaTrace,
+            ];
+        }
+
+        usort($evaluated, static function (array $a, array $b): int {
+            if (abs($a['smart_score'] - $b['smart_score']) > 0.0001) {
+                return $b['smart_score'] <=> $a['smart_score'];
+            }
+
+            return $a['input_index'] <=> $b['input_index'];
+        });
+
+        $approvedCount = 0;
+        $rankedResults = [];
+        foreach ($evaluated as $idx => $item) {
+            $rank = $idx + 1;
+            $remainingStaff = max(0, $totalDeptStaff - ($approvedCount + 1));
+            $canApprove = ($totalDeptStaff - ($approvedCount + 1)) >= $minStaffPerShift;
+            if ($canApprove) {
+                $approvedCount++;
+            }
+
+            $item['rank'] = $rank;
+            $item['can_approve_within_quota'] = $canApprove;
+            $item['remaining_staff_if_approved'] = $remainingStaff;
+            $rankedResults[] = $item;
+        }
+
+        $mode = count($rankedResults) >= 2 ? 'A' : 'B';
+
+        return [
+            'mode' => $mode,
+            'mode_label' => $mode === 'A' ? __('leave.smart_mode_a_label') : __('leave.smart_mode_b_label'),
+            'weights' => [
+                'raw' => $rawWeights,
+                'normalized' => $normalizedWeights,
+            ],
+            'formation' => [
+                'min_staff_per_shift' => $minStaffPerShift,
+                'total_department_staff' => $totalDeptStaff,
+            ],
+            'results' => $rankedResults,
+            'telemetry' => $telemetry,
+            'simulated_at' => Carbon::now('Asia/Jakarta')->toIso8601String(),
+        ];
+    }
+
+    /**
+     * Extract comprehensive raw database telemetry for a LeaveRequest and/or Employee.
+     *
+     * @param  array<string, int>  $customRawWeights
+     * @param  array<string, float>  $customNormalizedWeights
+     * @return array{
+     *     telemetry: array<string, mixed>,
+     *     candidates: list<array<string, mixed>>,
+     *     min_staff_per_shift: int,
+     *     total_department_staff: int
+     * }
+     */
+    private function inspectDatabaseTelemetry(
+        int|string|null $leaveRequestId,
+        int|string|null $employeeId,
+        array $customRawWeights,
+        array $customNormalizedWeights
+    ): array {
+        $leaveRequest = null;
+        if ($leaveRequestId !== null && $leaveRequestId !== '') {
+            $leaveRequest = is_numeric($leaveRequestId)
+                ? LeaveRequest::withoutGlobalScopes()->find((int) $leaveRequestId)
+                : LeaveRequest::withoutGlobalScopes()->where('uuid', (string) $leaveRequestId)->first();
+
+            if ($leaveRequest === null) {
+                throw ValidationException::withMessages([
+                    'leave_request_id' => [__('leave.debug_err_request_not_found')],
+                ]);
+            }
+
+            $leaveRequest->loadMissing([
+                'employee' => fn ($q) => $q->withoutGlobalScopes()->with([
+                    'user' => fn ($uq) => $uq->withoutGlobalScopes(),
+                    'department' => fn ($dq) => $dq->withoutGlobalScopes(),
+                ]),
+                'leaveType' => fn ($q) => $q->withoutGlobalScopes(),
+            ]);
+        }
+
+        $employee = $leaveRequest?->employee;
+        if ($employee === null && $employeeId !== null && $employeeId !== '') {
+            $employee = is_numeric($employeeId)
+                ? Employee::withoutGlobalScopes()->find((int) $employeeId)
+                : Employee::withoutGlobalScopes()->where('uuid', (string) $employeeId)->first();
+
+            if ($employee === null) {
+                throw ValidationException::withMessages([
+                    'employee_id' => [__('leave.err_no_employee_profile')],
+                ]);
+            }
+
+            $employee->loadMissing([
+                'user' => fn ($uq) => $uq->withoutGlobalScopes(),
+                'department' => fn ($dq) => $dq->withoutGlobalScopes(),
+            ]);
+        }
+
+        if ($employee === null || $employee->department === null) {
+            throw ValidationException::withMessages([
+                'employee_id' => [__('leave.err_no_employee_profile')],
+            ]);
+        }
+
+        $department = $employee->department;
+        $leaveType = $leaveRequest?->leaveType ?? LeaveType::findByCode('AL', (int) $employee->company_id);
+
+        $refDateTime = $leaveRequest?->created_at
+            ? Carbon::parse($leaveRequest->created_at)->setTimezone('Asia/Jakarta')
+            : Carbon::now('Asia/Jakarta');
+        $refDate = $refDateTime->copy()->startOfDay();
+        $startDate = $leaveRequest?->start_date
+            ? Carbon::parse($leaveRequest->start_date, 'Asia/Jakarta')->startOfDay()
+            : $refDate->copy();
+        $endDate = $leaveRequest?->end_date
+            ? Carbon::parse($leaveRequest->end_date, 'Asia/Jakarta')->startOfDay()
+            : $refDate->copy();
+
+        $activeDeptEmployeeIds = Employee::withoutGlobalScopes()
+            ->where('company_id', $department->company_id)
+            ->where('department_id', $department->id)
+            ->where('status', 'active')
+            ->pluck('id')
+            ->all();
+
+        $totalDeptStaff = count($activeDeptEmployeeIds);
+        $minStaff = max(1, (int) ($department->min_staff_per_shift ?? 1));
+
+        $publishedSchedules = WorkSchedule::withoutGlobalScopes()
+            ->with([
+                'employee' => fn ($q) => $q->withoutGlobalScopes()->with(['user' => fn ($uq) => $uq->withoutGlobalScopes()]),
+                'shift' => fn ($q) => $q->withoutGlobalScopes(),
+            ])
+            ->where('company_id', $department->company_id)
+            ->whereIn('employee_id', $activeDeptEmployeeIds ?: [0])
+            ->where('status', 'published')
+            ->whereDate('schedule_date', '>=', $startDate->toDateString())
+            ->whereDate('schedule_date', '<=', $endDate->toDateString())
+            ->orderBy('schedule_date')
+            ->get()
+            ->map(fn (WorkSchedule $ws): array => [
+                'employee_id' => $ws->employee_id,
+                'employee_name' => $ws->employee?->user?->name ?? '—',
+                'schedule_date' => $ws->schedule_date instanceof CarbonInterface
+                    ? $ws->schedule_date->toDateString()
+                    : (string) $ws->schedule_date,
+                'shift_code' => $ws->shift?->code ?? 'OFF',
+                'is_off' => $ws->isOff(),
+                'status' => $ws->status,
+            ])
+            ->values()
+            ->all();
+
+        // Nearest expiring ledger bucket details
+        $today = Carbon::now('Asia/Jakarta')->startOfDay();
+        $lookupFloor = $refDate->lessThan($today) ? $refDate->toDateString() : $today->toDateString();
+        $nearestBucket = $leaveType !== null && $leaveType->requires_quota
+            ? LeaveLedgerEntry::withoutGlobalScopes()
+                ->where('company_id', $employee->company_id)
+                ->where('employee_id', $employee->id)
+                ->where('leave_type_id', $leaveType->id)
+                ->where('remaining_amount', '>', 0)
+                ->whereNotNull('expires_at')
+                ->whereDate('expires_at', '>=', $lookupFloor)
+                ->orderBy('expires_at', 'asc')
+                ->orderBy('id', 'asc')
+                ->first()
+            : null;
+
+        // 90-day attendance breakdown
+        $attWindowStart = $refDateTime->copy()->subDays(90)->startOfDay();
+        $attendances90d = Attendance::withoutGlobalScopes()
+            ->where('company_id', $employee->company_id)
+            ->where('employee_id', $employee->id)
+            ->whereIn('status', ['on_time', 'late', 'early_leave'])
+            ->where('clock_in_at', '>=', $attWindowStart)
+            ->get(['id', 'status', 'late_minutes']);
+        $attTotal = $attendances90d->count();
+        $attOnTime = $attendances90d->filter(
+            fn (Attendance $a): bool => $a->status === 'on_time' && (int) ($a->late_minutes ?? 0) === 0
+        )->count();
+
+        // 90-day approved leave frequency
+        $leaveWindowStart = $refDate->copy()->subDays(90)->toDateString();
+        $approved90dQuery = LeaveRequest::withoutGlobalScopes()
+            ->where('company_id', $employee->company_id)
+            ->where('employee_id', $employee->id)
+            ->where('status', LeaveRequest::STATUS_APPROVED)
+            ->whereDate('end_date', '>=', $leaveWindowStart);
+        if ($leaveRequest !== null) {
+            $approved90dQuery->where('id', '!=', $leaveRequest->id);
+        }
+        $approvedDays90d = (int) round((float) $approved90dQuery->sum('total_days'));
+
+        $availableCache = [];
+        $syntheticReq = $leaveRequest ?? new LeaveRequest([
+            'company_id' => $employee->company_id,
+            'employee_id' => $employee->id,
+            'leave_type_id' => $leaveType?->id,
+            'start_date' => $startDate->toDateString(),
+            'end_date' => $endDate->toDateString(),
+            'total_days' => 1,
+        ]);
+
+        $rawCriteria = $leaveType !== null
+            ? $this->extractRawCriteriaValues(
+                $syntheticReq,
+                $employee,
+                $department,
+                $leaveType,
+                $activeDeptEmployeeIds,
+                $availableCache
+            )
+            : ['C1' => 100.0, 'C2' => 45.0, 'C3' => 100.0, 'C4' => 0.0, 'C5' => 0.0];
+
+        $savedDeptWeights = $this->getOrCreateDepartmentWeights($department)->keyBy('criteria_code');
+        $savedScore = 0.0;
+        $customScore = 0.0;
+        foreach (self::CRITERIA_DEFINITIONS as $code => $def) {
+            $utility = $this->calculateUtility((float) $rawCriteria[$code], $def['min'], $def['max'], $def['type']);
+            $savedNorm = (float) ($savedDeptWeights->get($code)?->normalized_weight ?? 0.2);
+            $savedScore += ($savedNorm * $utility);
+            $customScore += ($customNormalizedWeights[$code] * $utility);
+        }
+        $savedScore = round($savedScore, 2);
+        $customScore = round($customScore, 2);
+
+        // Build candidate list from overlapping department requests (or single employee if no request)
+        $candidates = [];
+        if ($leaveRequest !== null) {
+            $overlapping = LeaveRequest::withoutGlobalScopes()
+                ->with([
+                    'employee' => fn ($q) => $q->withoutGlobalScopes()->with([
+                        'user' => fn ($uq) => $uq->withoutGlobalScopes(),
+                        'department' => fn ($dq) => $dq->withoutGlobalScopes(),
+                    ]),
+                    'leaveType' => fn ($q) => $q->withoutGlobalScopes(),
+                ])
+                ->where('company_id', $leaveRequest->company_id)
+                ->whereIn('status', [
+                    LeaveRequest::STATUS_PENDING_MANAGER,
+                    LeaveRequest::STATUS_PENDING_HR,
+                ])
+                ->whereDate('start_date', '<=', $endDate->toDateString())
+                ->whereDate('end_date', '>=', $startDate->toDateString())
+                ->whereHas('employee', fn ($q) => $q->withoutGlobalScopes()->where('department_id', $department->id))
+                ->get();
+
+            if (! $overlapping->contains('id', $leaveRequest->id)) {
+                $overlapping->push($leaveRequest);
+            }
+
+            foreach ($overlapping as $reqItem) {
+                $reqRaw = $this->extractRawCriteriaValues(
+                    $reqItem,
+                    $reqItem->employee,
+                    $department,
+                    $reqItem->leaveType ?? $leaveType,
+                    $activeDeptEmployeeIds,
+                    $availableCache
+                );
+
+                $candidates[] = array_merge([
+                    'name' => sprintf(
+                        '%s (%s s.d. %s)',
+                        $reqItem->employee?->user?->name ?? 'Staf #'.$reqItem->employee_id,
+                        Carbon::parse($reqItem->start_date)->toDateString(),
+                        Carbon::parse($reqItem->end_date)->toDateString()
+                    ),
+                    'leave_request_id' => $reqItem->id,
+                ], $reqRaw);
+            }
+        } else {
+            $candidates[] = array_merge([
+                'name' => $employee->user?->name ?? 'Karyawan #'.$employee->id,
+            ], $rawCriteria);
+        }
+
+        return [
+            'telemetry' => [
+                'leave_request_id' => $leaveRequest?->id,
+                'leave_request_uuid' => $leaveRequest?->uuid,
+                'employee_id' => $employee->id,
+                'employee_name' => $employee->user?->name ?? '—',
+                'leave_type_code' => $leaveType?->code,
+                'department' => [
+                    'id' => $department->id,
+                    'code' => $department->code,
+                    'name' => $department->name,
+                    'min_staff_per_shift' => $minStaff,
+                    'active_staff_count' => $totalDeptStaff,
+                    'active_staff_ids' => $activeDeptEmployeeIds,
+                ],
+                'date_window' => [
+                    'start_date' => $startDate->toDateString(),
+                    'end_date' => $endDate->toDateString(),
+                    'total_days' => (int) ($leaveRequest?->total_days ?? 1),
+                    'published_schedules_on_window' => $publishedSchedules,
+                ],
+                'ledger_expiry' => [
+                    'requires_quota' => (bool) ($leaveType?->requires_quota ?? false),
+                    'nearest_bucket_id' => $nearestBucket?->id,
+                    'nearest_bucket_remaining' => $nearestBucket !== null ? (int) $nearestBucket->remaining_amount : null,
+                    'nearest_bucket_expires_at' => $nearestBucket?->expires_at?->toDateString(),
+                    'days_until_expiry' => $nearestBucket?->expires_at !== null
+                        ? (int) $refDate->diffInDays(Carbon::parse($nearestBucket->expires_at, 'Asia/Jakarta')->startOfDay(), false)
+                        : null,
+                ],
+                'attendance_90d' => [
+                    'window_start' => $attWindowStart->toDateString(),
+                    'total_records' => $attTotal,
+                    'on_time_count' => $attOnTime,
+                    'discipline_percentage' => $attTotal > 0 ? round(($attOnTime / $attTotal) * 100, 2) : 100.0,
+                ],
+                'leave_frequency_90d' => [
+                    'window_start' => $leaveWindowStart,
+                    'approved_days_last_90d' => $approvedDays90d,
+                ],
+                'submission_lead_time' => [
+                    'submitted_at' => $refDateTime->toIso8601String(),
+                    'start_date' => $startDate->toDateString(),
+                    'lead_days' => (int) max(0, $refDate->diffInDays($startDate, false)),
+                ],
+                'raw_criteria' => $rawCriteria,
+                'weight_comparison' => [
+                    'saved_department_weights' => $savedDeptWeights->mapWithKeys(fn ($w) => [
+                        $w->criteria_code => [
+                            'raw_weight' => (int) $w->raw_weight,
+                            'normalized_weight' => (float) $w->normalized_weight,
+                        ],
+                    ])->all(),
+                    'saved_score' => $savedScore,
+                    'saved_recommendation' => $this->resolveRecommendation($savedScore),
+                    'custom_weights_raw' => $customRawWeights,
+                    'custom_score' => $customScore,
+                    'custom_recommendation' => $this->resolveRecommendation($customScore),
+                    'score_delta' => round($customScore - $savedScore, 2),
+                ],
+            ],
+            'candidates' => $candidates,
+            'min_staff_per_shift' => $minStaff,
+            'total_department_staff' => $totalDeptStaff,
+        ];
     }
 }

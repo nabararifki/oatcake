@@ -139,12 +139,12 @@
                             {{ __('nav.profile') }}
                         </x-dropdown-link>
 
-                        <form method="POST" action="{{ route('logout') }}">
+                        <form method="POST" action="{{ route('logout') }}" data-pwa-logout-form>
                             @csrf
 
                             <x-dropdown-link :href="route('logout')"
                                     onclick="event.preventDefault();
-                                                this.closest('form').submit();">
+                                                if (window.oatcakeLogoutSubmit) { window.oatcakeLogoutSubmit(this.closest('form')); } else { this.closest('form').submit(); }">
                                 {{ __('nav.logout') }}
                             </x-dropdown-link>
                         </form>

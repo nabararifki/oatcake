@@ -124,6 +124,7 @@ class CompanySettingsController extends Controller
             'accent_color' => ['nullable', 'string', 'max:20'],
             'allowed_email_domain' => ['nullable', 'string', 'max:100'],
             'photo_retention_months' => ['nullable', 'integer', Rule::in([1, 3, 6, 12])],
+            'auto_assign_shift_on_clock_in' => ['nullable', 'boolean'],
         ];
 
         if ($user->isSuperAdmin()) {
@@ -155,6 +156,10 @@ class CompanySettingsController extends Controller
 
         if ($user->isSuperAdmin() && array_key_exists('storage_limit_mb', $validated) && $validated['storage_limit_mb'] !== null) {
             $updateData['storage_limit_mb'] = (int) $validated['storage_limit_mb'];
+        }
+
+        if ($request->has('auto_assign_shift_on_clock_in')) {
+            $updateData['auto_assign_shift_on_clock_in'] = $request->boolean('auto_assign_shift_on_clock_in');
         }
 
         $targetCompany->update($updateData);

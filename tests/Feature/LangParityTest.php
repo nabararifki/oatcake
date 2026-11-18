@@ -23,6 +23,7 @@ class LangParityTest extends TestCase
 
         $requiredDictionaries = [
             'attendance.php',
+            'audit.php',
             'auth.php',
             'common.php',
             'company.php',
@@ -30,6 +31,7 @@ class LangParityTest extends TestCase
             'departments.php',
             'leave.php',
             'nav.php',
+            'pwa.php',
             'roster.php',
             'staff.php',
             'table.php',

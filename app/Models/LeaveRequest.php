@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\RecordsAuditTrail;
 use App\Traits\BelongsToCompany;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
@@ -12,7 +13,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class LeaveRequest extends Model
 {
-    use BelongsToCompany, HasFactory, HasUuids;
+    use BelongsToCompany, HasFactory, HasUuids, RecordsAuditTrail;
 
     public const STATUS_PENDING_MANAGER = 'pending_manager';
     public const STATUS_PENDING_HR = 'pending_hr';
@@ -73,7 +74,7 @@ class LeaveRequest extends Model
         return [
             'start_date' => 'date',
             'end_date' => 'date',
-            'total_days' => 'decimal:2',
+            'total_days' => 'integer',
             'smart_score' => 'decimal:2',
             'smart_metrics' => 'array',
             'manager_approved_at' => 'datetime',

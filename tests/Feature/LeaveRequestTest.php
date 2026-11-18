@@ -217,7 +217,7 @@ class LeaveRequestTest extends TestCase
 
         $this->assertSame(5, $calc['calendar_days']);
         $this->assertSame(2, $calc['excluded_off_days']);
-        $this->assertSame(3.0, $calc['effective_days']);
+        $this->assertSame(3, $calc['effective_days']);
         $this->assertSame(['2026-06-09', '2026-06-11'], $calc['excluded_dates']);
 
         // Uji juga via JSON endpoint GET /leave/calculate-days
@@ -231,7 +231,7 @@ class LeaveRequestTest extends TestCase
             ->assertJson([
                 'calendar_days' => 5,
                 'excluded_off_days' => 2,
-                'effective_days' => 3.0,
+                'effective_days' => 3,
                 'excluded_dates' => ['2026-06-09', '2026-06-11'],
             ]);
 
@@ -253,22 +253,22 @@ class LeaveRequestTest extends TestCase
             ->where('employee_id', $this->staffEmployee->id)
             ->firstOrFail();
 
-        $this->assertSame('3.00', $leaveRequest->total_days);
+        $this->assertSame(3, $leaveRequest->total_days);
         $this->assertSame(LeaveRequest::STATUS_PENDING_MANAGER, $leaveRequest->status);
     }
 
     /**
      * Skenario 2: Validasi Kuota & Anti Double-Spending (Reservation Guard).
-     * Karyawan memiliki saldo AL = 4.00 hari.
-     * Mengajukan cuti pertama 3.00 hari (pending_manager).
-     * Pengajuan kedua 2.00 hari pada tanggal berbeda ditolak (HTTP 422) karena available_balance = 1.00,
-     * sementara saldo di leave_ledger_entries tetap 4.00 (tidak ada debit buku besar prematur).
+     * Karyawan memiliki saldo AL = 4 hari.
+     * Mengajukan cuti pertama 3 hari (pending_manager).
+     * Pengajuan kedua 2 hari pada tanggal berbeda ditolak (HTTP 422) karena available_balance = 1,
+     * sementara saldo di leave_ledger_entries tetap 4 (tidak ada debit buku besar prematur).
      */
     public function test_scenario_2_quota_reservation_guard_prevents_double_spending_without_premature_ledger_debit(): void
     {
         Carbon::setTestNow(Carbon::create(2026, 6, 1, 9, 0, 0, 'Asia/Jakarta'));
 
-        $this->ledgerService->recordAccrual($this->staffEmployee, 'AL', 4.00, [
+        $this->ledgerService->recordAccrual($this->staffEmployee, 'AL', 4, [
             'accrual_year' => 2026,
             'expires_at' => '2026-12-31',
         ]);
@@ -286,8 +286,8 @@ class LeaveRequestTest extends TestCase
 
         $firstResponse->assertRedirect(route('leave.index'));
 
-        // Pastikan saldo buku besar tetap 4.00 (belum ada debit di Fase 2)
-        $this->assertSame(4.0, $this->ledgerService->getBalance($this->staffEmployee, 'AL'));
+        // Pastikan saldo buku besar tetap 4 (belum ada debit di Fase 2)
+        $this->assertSame(4, $this->ledgerService->getBalance($this->staffEmployee, 'AL'));
         $this->assertSame(
             0,
             LeaveLedgerEntry::withoutGlobalScopes()
@@ -296,11 +296,11 @@ class LeaveRequestTest extends TestCase
                 ->count()
         );
 
-        // Periksa ringkasan kuota: ledger = 4.00, reserved = 3.00, available = 1.00
+        // Periksa ringkasan kuota: ledger = 4, reserved = 3, available = 1
         $quotaSummary = $this->leaveRequestService->getQuotaSummary($this->staffEmployee, 'AL');
-        $this->assertSame(4.0, $quotaSummary['ledger_balance']);
-        $this->assertSame(3.0, $quotaSummary['reserved_days']);
-        $this->assertSame(1.0, $quotaSummary['available_balance']);
+        $this->assertSame(4, $quotaSummary['ledger_balance']);
+        $this->assertSame(3, $quotaSummary['reserved_days']);
+        $this->assertSame(1, $quotaSummary['available_balance']);
 
         // Pengajuan kedua: 2 hari efektif (2026-06-22 s/d 2026-06-23) -> harus ditolak HTTP 422
         $secondResponse = $this->actingAs($this->staffUser)
@@ -517,10 +517,10 @@ class LeaveRequestTest extends TestCase
             ->where('employee_id', $this->staffEmployee->id)
             ->firstOrFail();
 
-        // Sebelum dibatalkan: reserved = 3.00, available = 2.00
+        // Sebelum dibatalkan: reserved = 3, available = 2
         $summaryBefore = $this->leaveRequestService->getQuotaSummary($this->staffEmployee, 'AL');
-        $this->assertSame(3.0, $summaryBefore['reserved_days']);
-        $this->assertSame(2.0, $summaryBefore['available_balance']);
+        $this->assertSame(3, $summaryBefore['reserved_days']);
+        $this->assertSame(2, $summaryBefore['available_balance']);
 
         // Karyawan lain (managerUser) mencoba membatalkan pengajuan milik staffEmployee -> 403 Forbidden
         $this->actingAs($this->managerUser)
@@ -541,10 +541,10 @@ class LeaveRequestTest extends TestCase
         $this->assertNotNull($leaveRequest->cancelled_at);
         $this->assertSame('Jadwal acara keluarga diundur ke bulan depan.', $leaveRequest->cancellation_reason);
 
-        // Setelah dibatalkan: reserved = 0.00, available = 5.00 kembali pulih
+        // Setelah dibatalkan: reserved = 0, available = 5 kembali pulih
         $summaryAfter = $this->leaveRequestService->getQuotaSummary($this->staffEmployee, 'AL');
-        $this->assertSame(0.0, $summaryAfter['reserved_days']);
-        $this->assertSame(5.0, $summaryAfter['available_balance']);
+        $this->assertSame(0, $summaryAfter['reserved_days']);
+        $this->assertSame(5, $summaryAfter['available_balance']);
 
         // Pengajuan yang sudah rejected tidak dapat dibatalkan mandiri -> HTTP 422
         $rejectedRequest = LeaveRequest::withoutGlobalScopes()->create([
@@ -668,7 +668,8 @@ class LeaveRequestTest extends TestCase
 
         $response->assertOk()
             ->assertSee(__('leave.title'))
-            ->assertSee('12.00');
+            ->assertSee('12')
+            ->assertDontSee('12.00');
 
         $idKeys = $this->flattenKeys(require base_path('lang/id/leave.php'));
         $enKeys = $this->flattenKeys(require base_path('lang/en/leave.php'));

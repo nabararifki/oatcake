@@ -9,6 +9,7 @@ import markerIconUrl from 'leaflet/dist/images/marker-icon.png';
 import markerShadowUrl from 'leaflet/dist/images/marker-shadow.png';
 import { registerRosterMatrix } from './roster';
 import { registerMobileDrawerSwipe } from './mobile-drawer';
+import { registerPwaManager } from './pwa';
 
 delete L.Icon.Default.prototype._getIconUrl;
 L.Icon.Default.mergeOptions({
@@ -21,6 +22,7 @@ window.L = L;
 Alpine.plugin(collapse);
 registerRosterMatrix(Alpine);
 registerMobileDrawerSwipe(Alpine);
+registerPwaManager(Alpine);
 
 const resolveThemeDark = (mode) =>
     mode === 'dark' || (mode !== 'light' && window.matchMedia('(prefers-color-scheme: dark)').matches);

@@ -253,8 +253,15 @@ class AttendanceGeofenceService
             ->sortBy(fn (WorkSchedule $ws) => ($ws->getEffectiveStartTime() ?: '99:99:99') . '_' . str_pad((string) $ws->id, 10, '0', STR_PAD_LEFT))
             ->values();
 
+        $company = $employee->relationLoaded('company')
+            ? $employee->company
+            : Company::withoutGlobalScopes()->find($employee->company_id);
+
+        $allowAutoAssign = $autoAssignOnUnscheduled
+            && (bool) ($company?->auto_assign_shift_on_clock_in ?? true);
+
         if ($schedules->isEmpty()) {
-            if ($autoAssignOnUnscheduled) {
+            if ($allowAutoAssign) {
                 return $this->autoAssignNearestShift($employee, $nowWib);
             }
 
@@ -288,7 +295,7 @@ class AttendanceGeofenceService
 
         if ($workingSchedules->isEmpty()) {
             $offSchedule = $schedules->first();
-            if ($autoAssignOnUnscheduled) {
+            if ($allowAutoAssign) {
                 return $this->autoAssignNearestShift($employee, $nowWib, $offSchedule);
             }
 

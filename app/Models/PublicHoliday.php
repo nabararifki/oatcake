@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\RecordsAuditTrail;
 use App\Traits\BelongsToCompany;
 use Carbon\Carbon;
 use Carbon\CarbonInterface;
@@ -13,7 +14,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class PublicHoliday extends Model
 {
-    use BelongsToCompany, HasFactory, HasUuids;
+    use BelongsToCompany, HasFactory, HasUuids, RecordsAuditTrail;
 
     protected $fillable = [
         'uuid',

@@ -111,10 +111,56 @@
                 <span class="o-sidebar-label truncate">{{ __('nav.company_settings') }}</span>
             </a>
         @endif
+
+        <!-- Audit Trail Console (Admin, Super User, Super Admin) -->
+        @if ($user && $user->isAdminOrAbove())
+            <a href="{{ route('audit-logs.index') }}"
+               :title="$store.sidebar.collapsed ? '{{ __('nav.audit_logs') }}' : ''"
+               class="o-sidebar-item flex items-center gap-3 py-2.5 text-xs transition-colors duration-150 {{ request()->routeIs('audit-logs.*') ? 'bg-accent text-accent-fg font-semibold rounded-xl shadow-md' : 'text-ink-muted hover:bg-surface-muted hover:text-ink rounded-xl font-medium' }}">
+                <svg class="w-5 h-5 shrink-0" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.75" stroke="currentColor" aria-hidden="true">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m5.231 13.481L15 17.25m-4.5-15H5.625c-.621 0-1.125.504-1.125 1.125v16.5c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Zm3.75 11.625a2.625 2.625 0 1 1-5.25 0 2.625 2.625 0 0 1 5.25 0Z" />
+                </svg>
+                <span class="o-sidebar-label truncate">{{ __('nav.audit_logs') }}</span>
+            </a>
+        @endif
     </nav>
 
-    <!-- Bagian Bawah: Identitas Brand & Tombol Collapse Sidebar -->
+    <!-- Bagian Bawah: Pusat Notifikasi, Tombol Instal PWA, Identitas Brand & Tombol Collapse Sidebar -->
     <div class="p-3 shrink-0 space-y-2">
+        <button
+            type="button"
+            @click="$store.pwa.openNotificationsModal()"
+            :title="$store.sidebar.collapsed ? '{{ __('pwa.notifications_bell_label') }}' : ''"
+            aria-label="{{ __('pwa.notifications_bell_label') }}"
+            class="o-sidebar-item w-full flex items-center justify-between gap-2.5 py-2 rounded-xl text-xs font-medium text-ink-muted hover:bg-surface-muted hover:text-ink transition-colors cursor-pointer"
+        >
+            <span class="flex items-center gap-2.5 min-w-0">
+                <svg class="w-5 h-5 shrink-0" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.75" stroke="currentColor" aria-hidden="true">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M14.857 17.082a23.848 23.848 0 0 0 5.454-1.31A8.967 8.967 0 0 1 18 9.75V9A6 6 0 0 0 6 9v.75a8.967 8.967 0 0 1-2.312 6.022c1.733.64 3.56 1.085 5.455 1.31m5.714 0a24.255 24.255 0 0 1-5.714 0m5.714 0a3 3 0 1 1-5.714 0" />
+                </svg>
+                <span class="o-sidebar-label truncate">{{ __('pwa.notifications_bell_label') }}</span>
+            </span>
+            <span x-show="$store.pwa && $store.pwa.unreadCount > 0"
+                  x-cloak
+                  x-text="$store.pwa.unreadCount"
+                  class="o-sidebar-label px-1.5 py-0.5 rounded-full bg-red-600 text-white text-[10px] font-bold"></span>
+        </button>
+
+        <button
+            type="button"
+            x-show="$store.pwa && !$store.pwa.isStandalone"
+            x-cloak
+            @click="$store.pwa.installApp()"
+            :title="$store.sidebar.collapsed ? '{{ __('pwa.install_app') }}' : ''"
+            aria-label="{{ __('pwa.install_app') }}"
+            class="o-sidebar-item w-full flex items-center gap-2.5 py-2.5 rounded-xl border border-accent/30 bg-accent/10 text-xs font-semibold text-accent-text hover:bg-accent/15 transition-colors cursor-pointer"
+        >
+            <svg class="w-5 h-5 shrink-0 text-accent" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.75" stroke="currentColor" aria-hidden="true">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3" />
+            </svg>
+            <span class="o-sidebar-label truncate">{{ __('pwa.install_app') }}</span>
+        </button>
+
         <div class="o-sidebar-brand flex items-center gap-2.5 py-1.5 rounded-xl bg-surface-muted/50 border border-line/60">
             <img src="{{ $currentCompany?->logo_url ?: asset('storage/oatcake_logo_min.jpg') }}"
                  alt="{{ $currentCompany?->name ?? config('app.name', 'OATCAKE') }}"

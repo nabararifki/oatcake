@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\RecordsAuditTrail;
 use App\Traits\BelongsToCompany;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
@@ -12,7 +13,7 @@ use LogicException;
 
 class LeaveLedgerEntry extends Model
 {
-    use BelongsToCompany, HasFactory, HasUuids;
+    use BelongsToCompany, HasFactory, HasUuids, RecordsAuditTrail;
 
     public const TYPE_ACCRUAL = 'accrual';
     public const TYPE_CREDIT = 'credit';
@@ -80,9 +81,9 @@ class LeaveLedgerEntry extends Model
     protected function casts(): array
     {
         return [
-            'amount' => 'decimal:2',
-            'remaining_amount' => 'decimal:2',
-            'balance_after' => 'decimal:2',
+            'amount' => 'integer',
+            'remaining_amount' => 'integer',
+            'balance_after' => 'integer',
             'accrual_year' => 'integer',
             'expires_at' => 'date',
         ];

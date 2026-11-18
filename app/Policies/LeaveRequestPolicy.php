@@ -283,6 +283,14 @@ class LeaveRequestPolicy
     }
 
     /**
+     * Determine whether the user can access the Super Admin SPK SMART Debug & Simulator console.
+     */
+    public function debugSmartEngine(User $user): bool
+    {
+        return (bool) $user->is_active && $user->role === 'super_admin';
+    }
+
+    /**
      * Verify strict tenant isolation for the leave request.
      */
     private function isSameTenant(User $user, LeaveRequest $leaveRequest): bool

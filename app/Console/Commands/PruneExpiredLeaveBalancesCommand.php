@@ -40,7 +40,7 @@ class PruneExpiredLeaveBalancesCommand extends Command
             ->get();
 
         $sweptCount = 0;
-        $totalExpiredDays = 0.0;
+        $totalExpiredDays = 0;
 
         foreach ($expiredBuckets as $bucket) {
             DB::transaction(function () use ($bucket, &$sweptCount, &$totalExpiredDays): void {
@@ -58,11 +58,11 @@ class PruneExpiredLeaveBalancesCommand extends Command
                     ->lockForUpdate()
                     ->first();
 
-                if ($lockedBucket === null || (float) $lockedBucket->remaining_amount <= 0) {
+                if ($lockedBucket === null || (int) $lockedBucket->remaining_amount <= 0) {
                     return;
                 }
 
-                $expiredAmount = round((float) $lockedBucket->remaining_amount, 2);
+                $expiredAmount = (int) round((float) $lockedBucket->remaining_amount);
 
                 $latestEntry = LeaveLedgerEntry::withoutGlobalScopes()
                     ->where('company_id', $lockedBucket->company_id)
@@ -71,8 +71,8 @@ class PruneExpiredLeaveBalancesCommand extends Command
                     ->orderByDesc('id')
                     ->first();
 
-                $currentBalance = $latestEntry !== null ? round((float) $latestEntry->balance_after, 2) : 0.0;
-                $balanceAfter = max(0.0, round($currentBalance - $expiredAmount, 2));
+                $currentBalance = $latestEntry !== null ? (int) round((float) $latestEntry->balance_after) : 0;
+                $balanceAfter = max(0, (int) ($currentBalance - $expiredAmount));
 
                 $lockedBucket->remaining_amount = 0;
                 $lockedBucket->save();
@@ -95,7 +95,7 @@ class PruneExpiredLeaveBalancesCommand extends Command
                 ]);
 
                 $sweptCount++;
-                $totalExpiredDays = round($totalExpiredDays + $expiredAmount, 2);
+                $totalExpiredDays += $expiredAmount;
             });
         }
 

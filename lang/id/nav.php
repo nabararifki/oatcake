@@ -5,6 +5,7 @@ return [
     'staff_directory'  => 'Direktori Staf',
     'departments'      => 'Departemen',
     'company_settings' => 'Pengaturan Perusahaan',
+    'audit_logs'       => 'Log Audit',
     'schedule_roster'          => 'Jadwal Kerja',
     'attendance'               => 'Presensi',
     'attendance_verifications' => 'Verifikasi Presensi',

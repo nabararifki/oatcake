@@ -384,7 +384,7 @@ class CompanyHolidayManagementTest extends TestCase
         $this->assertNotNull($attendance->dp_ledger_entry_id);
 
         $ledgerService = app(LeaveLedgerService::class);
-        $this->assertSame(1.0, $ledgerService->getBalance($employee, 'DP'));
+        $this->assertSame(1, $ledgerService->getBalance($employee, 'DP'));
 
         // 3. Jika Admin menghapus hari libur tersebut setelah DP dikomit, entri leave_ledger_entries tetap utuh (Strict Append-Only)
         $holiday = PublicHoliday::withoutGlobalScopes()->findOrFail($holidayId);
@@ -395,8 +395,8 @@ class CompanyHolidayManagementTest extends TestCase
         $this->assertDatabaseHas('leave_ledger_entries', [
             'id' => $attendance->dp_ledger_entry_id,
             'employee_id' => $employee->id,
-            'amount' => 1.00,
+            'amount' => 1,
         ]);
-        $this->assertSame(1.0, $ledgerService->getBalance($employee, 'DP'));
+        $this->assertSame(1, $ledgerService->getBalance($employee, 'DP'));
     }
 }

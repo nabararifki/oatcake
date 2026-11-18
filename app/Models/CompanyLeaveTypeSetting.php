@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\RecordsAuditTrail;
 use App\Traits\BelongsToCompany;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -9,7 +10,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class CompanyLeaveTypeSetting extends Model
 {
-    use BelongsToCompany, HasFactory;
+    use BelongsToCompany, HasFactory, RecordsAuditTrail;
 
     /**
      * The attributes that are mass assignable.
@@ -33,7 +34,7 @@ class CompanyLeaveTypeSetting extends Model
     {
         return [
             'validity_months' => 'integer',
-            'default_annual_quota' => 'decimal:2',
+            'default_annual_quota' => 'integer',
         ];
     }
 

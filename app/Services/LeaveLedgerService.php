@@ -35,7 +35,7 @@ class LeaveLedgerService
     /**
      * Get the current active leave balance for an employee and leave type.
      */
-    public function getBalance(Employee $employee, LeaveType|string $leaveType): float
+    public function getBalance(Employee $employee, LeaveType|string $leaveType): int
     {
         $type = $this->resolveLeaveType($leaveType, (int) $employee->company_id);
 
@@ -47,10 +47,10 @@ class LeaveLedgerService
             ->first();
 
         if ($latest === null) {
-            return 0.0;
+            return 0;
         }
 
-        return round((float) $latest->balance_after, 2);
+        return (int) round((float) $latest->balance_after);
     }
 
     /**
@@ -61,12 +61,12 @@ class LeaveLedgerService
     public function recordAccrual(
         Employee $employee,
         LeaveType|string $leaveType = 'AL',
-        ?float $amount = null,
+        int|float|null $amount = null,
         array $meta = []
     ): LeaveLedgerEntry {
         $type = $this->resolveLeaveType($leaveType, (int) $employee->company_id);
         $effectiveQuota = $type->getEffectiveAnnualQuota((int) $employee->company_id);
-        $quotaAmount = $amount !== null ? round(abs($amount), 2) : round((float) ($effectiveQuota ?? 12.00), 2);
+        $quotaAmount = $amount !== null ? (int) round(abs((float) $amount)) : (int) ($effectiveQuota ?? 12);
 
         if ($quotaAmount <= 0) {
             throw new InvalidArgumentException('Accrual amount must be greater than zero.');
@@ -95,7 +95,7 @@ class LeaveLedgerService
             }
 
             $currentBalance = $this->getBalance($lockedEmployee, $type);
-            $balanceAfter = round($currentBalance + $quotaAmount, 2);
+            $balanceAfter = (int) ($currentBalance + $quotaAmount);
 
             $effectiveValidityMonths = $type->getEffectiveValidityMonths((int) $lockedEmployee->company_id);
 
@@ -140,11 +140,11 @@ class LeaveLedgerService
     public function recordCredit(
         Employee $employee,
         LeaveType|string $leaveType = 'DP',
-        float $amount = 1.0,
+        int|float $amount = 1,
         array $meta = []
     ): LeaveLedgerEntry {
         $type = $this->resolveLeaveType($leaveType, (int) $employee->company_id);
-        $creditAmount = round(abs($amount), 2);
+        $creditAmount = (int) round(abs((float) $amount));
 
         if ($creditAmount <= 0) {
             throw new InvalidArgumentException('Credit amount must be greater than zero.');
@@ -157,7 +157,7 @@ class LeaveLedgerService
                 ->firstOrFail();
 
             $currentBalance = $this->getBalance($lockedEmployee, $type);
-            $balanceAfter = round($currentBalance + $creditAmount, 2);
+            $balanceAfter = (int) ($currentBalance + $creditAmount);
 
             $effectiveValidityMonths = $type->getEffectiveValidityMonths((int) $lockedEmployee->company_id);
 
@@ -200,11 +200,11 @@ class LeaveLedgerService
     public function recordDebit(
         Employee $employee,
         LeaveType|string $leaveType,
-        float $amount,
+        int|float $amount,
         array $meta = []
     ): LeaveLedgerEntry {
         $type = $this->resolveLeaveType($leaveType, (int) $employee->company_id);
-        $debitAmount = round(abs($amount), 2);
+        $debitAmount = (int) round(abs((float) $amount));
 
         if ($debitAmount <= 0) {
             throw new InvalidArgumentException('Debit amount must be greater than zero.');
@@ -246,7 +246,7 @@ class LeaveLedgerService
                 ->lockForUpdate()
                 ->get();
 
-            $availableQuota = round((float) $buckets->sum('remaining_amount'), 2);
+            $availableQuota = (int) round((float) $buckets->sum('remaining_amount'));
             if ($availableQuota < $debitAmount) {
                 throw new RuntimeException(
                     "Insufficient non-expired leave quota for {$type->code}. Active available: {$availableQuota}, requested: {$debitAmount}."
@@ -261,7 +261,7 @@ class LeaveLedgerService
                     break;
                 }
 
-                $bucketAvailable = round((float) $bucket->remaining_amount, 2);
+                $bucketAvailable = (int) round((float) $bucket->remaining_amount);
                 if ($bucketAvailable <= 0) {
                     continue;
                 }
@@ -271,13 +271,13 @@ class LeaveLedgerService
                 }
 
                 $deduct = min($bucketAvailable, $remainingToDeplete);
-                $bucket->remaining_amount = round($bucketAvailable - $deduct, 2);
+                $bucket->remaining_amount = (int) ($bucketAvailable - $deduct);
                 $bucket->save();
 
-                $remainingToDeplete = round($remainingToDeplete - $deduct, 2);
+                $remainingToDeplete = (int) ($remainingToDeplete - $deduct);
             }
 
-            $balanceAfter = round($currentBalance - $debitAmount, 2);
+            $balanceAfter = (int) ($currentBalance - $debitAmount);
 
             return LeaveLedgerEntry::withoutGlobalScopes()->create([
                 'company_id' => $lockedEmployee->company_id,
@@ -306,13 +306,13 @@ class LeaveLedgerService
     public function recordAdjustment(
         Employee $employee,
         LeaveType|string $leaveType,
-        float $amount,
+        int|float $amount,
         array $meta = []
     ): LeaveLedgerEntry {
         $type = $this->resolveLeaveType($leaveType, (int) $employee->company_id);
-        $signedAmount = round($amount, 2);
+        $signedAmount = (int) round((float) $amount);
 
-        if ($signedAmount == 0.0) {
+        if ($signedAmount === 0) {
             throw new InvalidArgumentException('Adjustment amount cannot be zero.');
         }
 
@@ -323,7 +323,7 @@ class LeaveLedgerService
                 ->firstOrFail();
 
             $currentBalance = $this->getBalance($lockedEmployee, $type);
-            $balanceAfter = round($currentBalance + $signedAmount, 2);
+            $balanceAfter = (int) ($currentBalance + $signedAmount);
 
             if ($balanceAfter < 0) {
                 throw new RuntimeException(
@@ -331,7 +331,7 @@ class LeaveLedgerService
                 );
             }
 
-            $remainingAmount = 0.0;
+            $remainingAmount = 0;
             $expiresAt = null;
             $firstSourceBucketId = null;
 
@@ -376,7 +376,7 @@ class LeaveLedgerService
                         break;
                     }
 
-                    $bucketAvailable = round((float) $bucket->remaining_amount, 2);
+                    $bucketAvailable = (int) round((float) $bucket->remaining_amount);
                     if ($bucketAvailable <= 0) {
                         continue;
                     }
@@ -386,10 +386,10 @@ class LeaveLedgerService
                     }
 
                     $deduct = min($bucketAvailable, $toDeplete);
-                    $bucket->remaining_amount = round($bucketAvailable - $deduct, 2);
+                    $bucket->remaining_amount = (int) ($bucketAvailable - $deduct);
                     $bucket->save();
 
-                    $toDeplete = round($toDeplete - $deduct, 2);
+                    $toDeplete = (int) ($toDeplete - $deduct);
                 }
             }
 
@@ -419,13 +419,13 @@ class LeaveLedgerService
     public function recordCancellationRefund(
         Employee $employee,
         LeaveType|string $leaveType,
-        float $amount,
+        int|float $amount,
         LeaveRequest $leaveRequest,
         ?User $actor = null,
         ?string $notes = null
     ): LeaveLedgerEntry {
         $type = $this->resolveLeaveType($leaveType, (int) $employee->company_id);
-        $refundAmount = round(abs($amount), 2);
+        $refundAmount = (int) round(abs((float) $amount));
 
         if ($refundAmount <= 0) {
             throw new InvalidArgumentException('Refund amount must be greater than zero.');
@@ -445,7 +445,7 @@ class LeaveLedgerService
                 ->firstOrFail();
 
             $currentBalance = $this->getBalance($lockedEmployee, $type);
-            $balanceAfter = round($currentBalance + $refundAmount, 2);
+            $balanceAfter = (int) ($currentBalance + $refundAmount);
 
             $expiresAt = null;
             $todayStr = Carbon::today('Asia/Jakarta')->toDateString();

@@ -196,4 +196,62 @@ class CompanySettingsTest extends TestCase
             'timezone' => 'Asia/Makassar',
         ]);
     }
+
+    public function test_categorized_searchable_company_settings_and_auto_assign_shift_toggle_persistence(): void
+    {
+        $fixture = $this->createFixture();
+        $company = $fixture['company']->fresh();
+
+        $this->assertTrue((bool) $company->auto_assign_shift_on_clock_in);
+
+        // 1. Halaman pengaturan perusahaan merender bilah pencarian, 4 kategori, dan toggle auto_assign_shift_on_clock_in
+        $pageResponse = $this->actingAs($fixture['adminUser'])->get(route('settings.company.edit'));
+        $pageResponse->assertOk()
+            ->assertSee('id="company-settings-search"', false)
+            ->assertSee('id="company-auto-assign-shift"', false)
+            ->assertSee(__('company.cat_all'))
+            ->assertSee(__('company.cat_profile'))
+            ->assertSee(__('company.cat_attendance'))
+            ->assertSee(__('company.cat_storage'))
+            ->assertSee(__('company.cat_holidays'))
+            ->assertSee(__('company.auto_assign_shift_label'))
+            ->assertDontSee('x-if="matchesSection', false);
+
+        // 2. Admin menonaktifkan toggle auto_assign_shift_on_clock_in via PUT /settings/company
+        $disableResp = $this->actingAs($fixture['adminUser'])->putJson(route('settings.company.update'), [
+            'name' => $company->name,
+            'code' => $company->code,
+            'latitude' => $company->latitude,
+            'longitude' => $company->longitude,
+            'geofence_radius' => $company->geofence_radius,
+            'timezone' => $company->timezone,
+            'auto_assign_shift_on_clock_in' => false,
+        ]);
+
+        $disableResp->assertOk();
+        $company->refresh();
+        $this->assertFalse((bool) $company->auto_assign_shift_on_clock_in);
+
+        $this->assertDatabaseHas('audit_logs', [
+            'auditable_type' => 'company',
+            'auditable_id' => $company->id,
+            'event_type' => 'updated',
+        ]);
+
+        // 3. Super Admin mengaktifkan kembali toggle auto_assign_shift_on_clock_in
+        $enableResp = $this->actingAs($fixture['superAdmin'])
+            ->withSession(['active_company_id' => $company->id])
+            ->putJson(route('settings.company.update'), [
+                'name' => $company->name,
+                'code' => $company->code,
+                'latitude' => $company->latitude,
+                'longitude' => $company->longitude,
+                'geofence_radius' => $company->geofence_radius,
+                'timezone' => $company->timezone,
+                'auto_assign_shift_on_clock_in' => true,
+            ]);
+
+        $enableResp->assertOk();
+        $this->assertTrue((bool) $company->fresh()->auto_assign_shift_on_clock_in);
+    }
 }

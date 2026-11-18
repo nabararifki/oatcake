@@ -5,6 +5,7 @@ return [
     'staff_directory'  => 'Staff Directory',
     'departments'      => 'Departments',
     'company_settings' => 'Company Settings',
+    'audit_logs'       => 'Audit Logs',
     'schedule_roster'          => 'Schedule Roster',
     'attendance'               => 'Attendance',
     'attendance_verifications' => 'Attendance Verification',

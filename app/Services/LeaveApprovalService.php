@@ -9,16 +9,21 @@ use App\Models\Shift;
 use App\Models\User;
 use App\Models\WorkSchedule;
 use Carbon\Carbon;
+use Carbon\CarbonInterface;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\ValidationException;
 use InvalidArgumentException;
 use RuntimeException;
+use Throwable;
 
 class LeaveApprovalService
 {
     public function __construct(
         private readonly LeaveLedgerService $leaveLedgerService,
-        private readonly SmartDecisionService $smartDecisionService
+        private readonly SmartDecisionService $smartDecisionService,
+        private readonly ?WebPushService $webPushService = null,
+        private readonly ?AuditTrailService $auditTrailService = null
     ) {}
 
     /**
@@ -37,7 +42,7 @@ class LeaveApprovalService
             ]);
         }
 
-        return DB::transaction(function () use ($leaveRequest, $actor, $notes): LeaveRequest {
+        $approvedRequest = DB::transaction(function () use ($leaveRequest, $actor, $notes): LeaveRequest {
             $lockedRequest = LeaveRequest::withoutGlobalScopes()
                 ->whereKey($leaveRequest->id)
                 ->lockForUpdate()
@@ -71,6 +76,25 @@ class LeaveApprovalService
 
             return $lockedRequest->refresh();
         });
+
+        $this->dispatchTier1ApprovedNotifications($approvedRequest, $actor);
+
+        ($this->auditTrailService ?? app(AuditTrailService::class))->record(
+            'approved_tier1',
+            $approvedRequest,
+            ['status' => LeaveRequest::STATUS_PENDING_MANAGER],
+            array_filter([
+                'status' => LeaveRequest::STATUS_PENDING_HR,
+                'manager_approved_by' => $actor->id,
+                'notes' => $notes !== null && trim($notes) !== '' ? trim($notes) : null,
+            ], static fn ($v) => $v !== null),
+            "Tier 1 manager approval for leave request #{$approvedRequest->id}",
+            ['tier' => 1],
+            $actor,
+            (int) $approvedRequest->company_id
+        );
+
+        return $approvedRequest;
     }
 
     /**
@@ -88,7 +112,7 @@ class LeaveApprovalService
             ]);
         }
 
-        return DB::transaction(function () use ($leaveRequest, $actor, $notes): LeaveRequest {
+        $approvedRequest = DB::transaction(function () use ($leaveRequest, $actor, $notes): LeaveRequest {
             $lockedEmployee = Employee::withoutGlobalScopes()
                 ->whereKey($leaveRequest->employee_id)
                 ->lockForUpdate()
@@ -121,7 +145,7 @@ class LeaveApprovalService
                     $ledgerEntry = $this->leaveLedgerService->recordDebit(
                         $lockedEmployee,
                         $leaveType,
-                        (float) $lockedRequest->total_days,
+                        (int) $lockedRequest->total_days,
                         [
                             'reference_type' => 'leave_request',
                             'reference_id' => $lockedRequest->id,
@@ -166,6 +190,26 @@ class LeaveApprovalService
 
             return $lockedRequest->refresh();
         });
+
+        $this->dispatchTier2ApprovedNotification($approvedRequest);
+
+        ($this->auditTrailService ?? app(AuditTrailService::class))->record(
+            'approved_tier2',
+            $approvedRequest,
+            ['status' => LeaveRequest::STATUS_PENDING_HR],
+            array_filter([
+                'status' => LeaveRequest::STATUS_APPROVED,
+                'hr_approved_by' => $actor->id,
+                'ledger_entry_id' => $approvedRequest->ledger_entry_id,
+                'notes' => $notes !== null && trim($notes) !== '' ? trim($notes) : null,
+            ], static fn ($v) => $v !== null),
+            "Tier 2 final HR approval for leave request #{$approvedRequest->id}",
+            ['tier' => 2],
+            $actor,
+            (int) $approvedRequest->company_id
+        );
+
+        return $approvedRequest;
     }
 
     /**
@@ -191,7 +235,8 @@ class LeaveApprovalService
             ]);
         }
 
-        return DB::transaction(function () use ($leaveRequest, $actor, $cleanReason): LeaveRequest {
+        $previousStatus = $leaveRequest->status;
+        $rejectedRequest = DB::transaction(function () use ($leaveRequest, $actor, $cleanReason): LeaveRequest {
             $lockedRequest = LeaveRequest::withoutGlobalScopes()
                 ->whereKey($leaveRequest->id)
                 ->lockForUpdate()
@@ -226,6 +271,172 @@ class LeaveApprovalService
 
             return $lockedRequest->refresh();
         });
+
+        $this->dispatchRejectedNotification($rejectedRequest, $cleanReason);
+
+        ($this->auditTrailService ?? app(AuditTrailService::class))->record(
+            'rejected',
+            $rejectedRequest,
+            ['status' => $previousStatus],
+            [
+                'status' => LeaveRequest::STATUS_REJECTED,
+                'rejected_by' => $actor->id,
+                'rejection_reason' => $cleanReason,
+            ],
+            "Leave request #{$rejectedRequest->id} rejected",
+            [],
+            $actor,
+            (int) $rejectedRequest->company_id
+        );
+
+        return $rejectedRequest;
+    }
+
+    private function dispatchTier1ApprovedNotifications(LeaveRequest $leaveRequest, User $actor): void
+    {
+        try {
+            $leaveRequest->loadMissing([
+                'employee' => fn ($q) => $q->withoutGlobalScopes()->with('user'),
+                'leaveType' => fn ($q) => $q->withoutGlobalScopes(),
+            ]);
+
+            $push = $this->webPushService ?? app(WebPushService::class);
+            $applicantUser = $leaveRequest->employee?->user;
+            $applicantName = $applicantUser?->name ?? 'Staf';
+            $leaveTypeCode = $leaveRequest->leaveType?->code ?? 'LEAVE';
+            $startStr = $leaveRequest->start_date instanceof CarbonInterface
+                ? $leaveRequest->start_date->toDateString()
+                : Carbon::parse($leaveRequest->start_date, 'Asia/Jakarta')->toDateString();
+            $endStr = $leaveRequest->end_date instanceof CarbonInterface
+                ? $leaveRequest->end_date->toDateString()
+                : Carbon::parse($leaveRequest->end_date, 'Asia/Jakarta')->toDateString();
+            $actionUrl = route('leave.index', [], false);
+            $meta = [
+                'leave_request_id' => $leaveRequest->id,
+                'leave_request_uuid' => $leaveRequest->uuid,
+                'tier' => 1,
+            ];
+
+            $admins = $push->resolveCompanyAdmins((int) $leaveRequest->company_id, $actor->id);
+            $push->notifyUsers(
+                $admins,
+                'leave_tier1_approved',
+                __('pwa.notif_leave_tier1_admin_title'),
+                __('pwa.notif_leave_tier1_admin_body', [
+                    'name' => $applicantName,
+                    'type' => $leaveTypeCode,
+                    'start' => $startStr,
+                    'end' => $endStr,
+                ]),
+                $actionUrl,
+                $meta
+            );
+
+            if ($applicantUser !== null && $applicantUser->is_active && $applicantUser->id !== $actor->id) {
+                $push->notifyUser(
+                    $applicantUser,
+                    'leave_tier1_approved',
+                    __('pwa.notif_leave_tier1_staff_title'),
+                    __('pwa.notif_leave_tier1_staff_body', [
+                        'type' => $leaveTypeCode,
+                        'start' => $startStr,
+                        'end' => $endStr,
+                    ]),
+                    $actionUrl,
+                    $meta
+                );
+            }
+        } catch (Throwable $e) {
+            Log::warning('Failed to dispatch Tier 1 leave approval notifications: '.$e->getMessage());
+        }
+    }
+
+    private function dispatchTier2ApprovedNotification(LeaveRequest $leaveRequest): void
+    {
+        try {
+            $leaveRequest->loadMissing([
+                'employee' => fn ($q) => $q->withoutGlobalScopes()->with('user'),
+                'leaveType' => fn ($q) => $q->withoutGlobalScopes(),
+            ]);
+
+            $applicantUser = $leaveRequest->employee?->user;
+            if ($applicantUser === null || ! $applicantUser->is_active) {
+                return;
+            }
+
+            $push = $this->webPushService ?? app(WebPushService::class);
+            $leaveTypeCode = $leaveRequest->leaveType?->code ?? 'LEAVE';
+            $startStr = $leaveRequest->start_date instanceof CarbonInterface
+                ? $leaveRequest->start_date->toDateString()
+                : Carbon::parse($leaveRequest->start_date, 'Asia/Jakarta')->toDateString();
+            $endStr = $leaveRequest->end_date instanceof CarbonInterface
+                ? $leaveRequest->end_date->toDateString()
+                : Carbon::parse($leaveRequest->end_date, 'Asia/Jakarta')->toDateString();
+            $daysStr = (string) (int) $leaveRequest->total_days;
+
+            $push->notifyUser(
+                $applicantUser,
+                'leave_approved',
+                __('pwa.notif_leave_approved_title'),
+                __('pwa.notif_leave_approved_body', [
+                    'type' => $leaveTypeCode,
+                    'start' => $startStr,
+                    'end' => $endStr,
+                    'days' => $daysStr,
+                ]),
+                route('leave.index', [], false),
+                [
+                    'leave_request_id' => $leaveRequest->id,
+                    'leave_request_uuid' => $leaveRequest->uuid,
+                    'tier' => 2,
+                ]
+            );
+        } catch (Throwable $e) {
+            Log::warning('Failed to dispatch Tier 2 leave approval notification: '.$e->getMessage());
+        }
+    }
+
+    private function dispatchRejectedNotification(LeaveRequest $leaveRequest, string $reason): void
+    {
+        try {
+            $leaveRequest->loadMissing([
+                'employee' => fn ($q) => $q->withoutGlobalScopes()->with('user'),
+                'leaveType' => fn ($q) => $q->withoutGlobalScopes(),
+            ]);
+
+            $applicantUser = $leaveRequest->employee?->user;
+            if ($applicantUser === null || ! $applicantUser->is_active) {
+                return;
+            }
+
+            $push = $this->webPushService ?? app(WebPushService::class);
+            $leaveTypeCode = $leaveRequest->leaveType?->code ?? 'LEAVE';
+            $startStr = $leaveRequest->start_date instanceof CarbonInterface
+                ? $leaveRequest->start_date->toDateString()
+                : Carbon::parse($leaveRequest->start_date, 'Asia/Jakarta')->toDateString();
+            $endStr = $leaveRequest->end_date instanceof CarbonInterface
+                ? $leaveRequest->end_date->toDateString()
+                : Carbon::parse($leaveRequest->end_date, 'Asia/Jakarta')->toDateString();
+
+            $push->notifyUser(
+                $applicantUser,
+                'leave_rejected',
+                __('pwa.notif_leave_rejected_title'),
+                __('pwa.notif_leave_rejected_body', [
+                    'type' => $leaveTypeCode,
+                    'start' => $startStr,
+                    'end' => $endStr,
+                    'reason' => $reason,
+                ]),
+                route('leave.index', [], false),
+                [
+                    'leave_request_id' => $leaveRequest->id,
+                    'leave_request_uuid' => $leaveRequest->uuid,
+                ]
+            );
+        } catch (Throwable $e) {
+            Log::warning('Failed to dispatch leave rejection notification: '.$e->getMessage());
+        }
     }
 
     /**

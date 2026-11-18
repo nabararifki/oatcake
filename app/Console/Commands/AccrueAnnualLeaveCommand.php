@@ -70,7 +70,7 @@ class AccrueAnnualLeaveCommand extends Command
                 continue;
             }
 
-            $quota = (float) ($alType->getEffectiveAnnualQuota((int) $employee->company_id) ?? 12.00);
+            $quota = (int) ($alType->getEffectiveAnnualQuota((int) $employee->company_id) ?? 12);
             $effectiveValidityMonths = $alType->getEffectiveValidityMonths((int) $employee->company_id);
 
             $entryExpiresAt = match (true) {

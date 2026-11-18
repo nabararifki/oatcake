@@ -133,8 +133,8 @@ class TwoPhaseDpCommitTest extends TestCase
         $clockInResponse->assertOk()
             ->assertJsonPath('data.is_provisional_dp', true);
 
-        // Pastikan saat baru Clock-In, saldo DP masih 0.0
-        $this->assertSame(0.0, $this->ledgerService->getBalance($this->employee, 'DP'));
+        // Pastikan saat baru Clock-In, saldo DP masih 0
+        $this->assertSame(0, $this->ledgerService->getBalance($this->employee, 'DP'));
 
         // Phase 2: Clock-Out 8 jam kemudian (17 Agustus 2026 15:00 WIB)
         Carbon::setTestNow(Carbon::create(2026, 8, 17, 15, 0, 0, 'Asia/Jakarta'));
@@ -154,13 +154,13 @@ class TwoPhaseDpCommitTest extends TestCase
 
         $this->assertNotNull($attendance->dp_committed_at);
         $this->assertNotNull($attendance->dp_ledger_entry_id);
-        $this->assertSame(1.0, $this->ledgerService->getBalance($this->employee, 'DP'));
+        $this->assertSame(1, $this->ledgerService->getBalance($this->employee, 'DP'));
 
         $ledgerEntry = LeaveLedgerEntry::withoutGlobalScopes()->findOrFail($attendance->dp_ledger_entry_id);
         $this->assertSame(LeaveLedgerEntry::TYPE_CREDIT, $ledgerEntry->transaction_type);
-        $this->assertSame('1.00', $ledgerEntry->amount);
-        $this->assertSame('1.00', $ledgerEntry->remaining_amount);
-        $this->assertSame('1.00', $ledgerEntry->balance_after);
+        $this->assertSame(1, $ledgerEntry->amount);
+        $this->assertSame(1, $ledgerEntry->remaining_amount);
+        $this->assertSame(1, $ledgerEntry->balance_after);
         $this->assertSame('attendance', $ledgerEntry->reference_type);
         $this->assertSame($attendance->id, $ledgerEntry->reference_id);
         // 3 bulan sejak 2026-08-17 -> 2026-11-17
@@ -169,7 +169,7 @@ class TwoPhaseDpCommitTest extends TestCase
         // Uji Idempotensi: memanggil ulang attemptCommitFromAttendance tidak pernah menggandakan DP
         $duplicateAttempt = app(DpCommitService::class)->attemptCommitFromAttendance($attendance);
         $this->assertNull($duplicateAttempt);
-        $this->assertSame(1.0, $this->ledgerService->getBalance($this->employee, 'DP'));
+        $this->assertSame(1, $this->ledgerService->getBalance($this->employee, 'DP'));
 
         // Pastikan UI Riwayat Presensi menampilkan badge DP Committed ✦ +1.0
         $historyView = $this->actingAs($this->employee->user)->get(route('attendance.index'));
@@ -210,7 +210,7 @@ class TwoPhaseDpCommitTest extends TestCase
         $this->assertTrue($attendance->is_provisional_dp);
         $this->assertNull($attendance->dp_committed_at);
         $this->assertNull($attendance->dp_ledger_entry_id);
-        $this->assertSame(0.0, $this->ledgerService->getBalance($this->employee, 'DP'));
+        $this->assertSame(0, $this->ledgerService->getBalance($this->employee, 'DP'));
         $this->assertDatabaseCount('leave_ledger_entries', 0);
     }
 
@@ -250,7 +250,7 @@ class TwoPhaseDpCommitTest extends TestCase
         $this->assertSame('pending_verification', $attendance->status);
         $this->assertNull($attendance->dp_committed_at);
         $this->assertNull($attendance->dp_ledger_entry_id);
-        $this->assertSame(0.0, $this->ledgerService->getBalance($this->employee, 'DP'));
+        $this->assertSame(0, $this->ledgerService->getBalance($this->employee, 'DP'));
 
         // Manajer menyetujui presensi dinas luar tersebut
         Carbon::setTestNow(Carbon::create(2026, 12, 25, 16, 0, 0, 'Asia/Jakarta'));
@@ -265,7 +265,7 @@ class TwoPhaseDpCommitTest extends TestCase
         $this->assertSame('on_time', $attendance->status);
         $this->assertNotNull($attendance->dp_committed_at);
         $this->assertNotNull($attendance->dp_ledger_entry_id);
-        $this->assertSame(1.0, $this->ledgerService->getBalance($this->employee, 'DP'));
+        $this->assertSame(1, $this->ledgerService->getBalance($this->employee, 'DP'));
     }
 
     /**
@@ -277,19 +277,19 @@ class TwoPhaseDpCommitTest extends TestCase
     {
         Carbon::setTestNow(Carbon::create(2026, 8, 1, 8, 0, 0, 'Asia/Jakarta'));
 
-        // Bucket 1: DP +1.00 hari yang kedaluwarsa pada 2026-11-01
-        $expiredBucket = $this->ledgerService->recordCredit($this->employee, 'DP', 1.00, [
+        // Bucket 1: DP +1 hari yang kedaluwarsa pada 2026-11-01
+        $expiredBucket = $this->ledgerService->recordCredit($this->employee, 'DP', 1, [
             'expires_at' => '2026-11-01',
             'notes' => 'DP Agustus',
         ]);
 
-        // Bucket 2: DP +1.00 hari yang masih aktif hingga 2026-12-15
-        $activeBucket = $this->ledgerService->recordCredit($this->employee, 'DP', 1.00, [
+        // Bucket 2: DP +1 hari yang masih aktif hingga 2026-12-15
+        $activeBucket = $this->ledgerService->recordCredit($this->employee, 'DP', 1, [
             'expires_at' => '2026-12-15',
             'notes' => 'DP September',
         ]);
 
-        $this->assertSame(2.0, $this->ledgerService->getBalance($this->employee, 'DP'));
+        $this->assertSame(2, $this->ledgerService->getBalance($this->employee, 'DP'));
 
         // Majukan waktu ke 10 November 2026 (setelah Bucket 1 kedaluwarsa, tetapi sebelum Bucket 2 kedaluwarsa)
         Carbon::setTestNow(Carbon::create(2026, 11, 10, 1, 0, 0, 'Asia/Jakarta'));
@@ -297,31 +297,31 @@ class TwoPhaseDpCommitTest extends TestCase
         $this->artisan('leave:prune-expired')
             ->assertExitCode(0);
 
-        // Bucket 1 harus dikosongkan remaining_amount-nya menjadi 0.00
-        $this->assertSame('0.00', $expiredBucket->fresh()->remaining_amount);
-        // Bucket 2 tetap memiliki remaining_amount 1.00
-        $this->assertSame('1.00', $activeBucket->fresh()->remaining_amount);
+        // Bucket 1 harus dikosongkan remaining_amount-nya menjadi 0
+        $this->assertSame(0, $expiredBucket->fresh()->remaining_amount);
+        // Bucket 2 tetap memiliki remaining_amount 1
+        $this->assertSame(1, $activeBucket->fresh()->remaining_amount);
 
-        // Pastikan baris transaksi bertipe 'expired' tercatat dengan amount -1.00 dan balance_after 1.00
+        // Pastikan baris transaksi bertipe 'expired' tercatat dengan amount -1 dan balance_after 1
         $sweepEntry = LeaveLedgerEntry::withoutGlobalScopes()
             ->where('employee_id', $this->employee->id)
             ->where('transaction_type', LeaveLedgerEntry::TYPE_EXPIRED)
             ->firstOrFail();
 
-        $this->assertSame('-1.00', $sweepEntry->amount);
-        $this->assertSame('0.00', $sweepEntry->remaining_amount);
-        $this->assertSame('1.00', $sweepEntry->balance_after);
+        $this->assertSame(-1, $sweepEntry->amount);
+        $this->assertSame(0, $sweepEntry->remaining_amount);
+        $this->assertSame(1, $sweepEntry->balance_after);
         $this->assertSame($expiredBucket->id, $sweepEntry->source_entry_id);
         $this->assertSame('expiry_sweep', $sweepEntry->reference_type);
         $this->assertSame($expiredBucket->id, $sweepEntry->reference_id);
 
-        // Saldo akhir DP karyawan kini harus 1.00 hari
-        $this->assertSame(1.0, $this->ledgerService->getBalance($this->employee, 'DP'));
+        // Saldo akhir DP karyawan kini harus 1 hari
+        $this->assertSame(1, $this->ledgerService->getBalance($this->employee, 'DP'));
 
         // Eksekusi ulang command leave:prune-expired pada hari yang sama tidak boleh menyapu ulang bucket yang sudah 0
         $this->artisan('leave:prune-expired')
             ->assertExitCode(0);
 
-        $this->assertSame(1.0, $this->ledgerService->getBalance($this->employee, 'DP'));
+        $this->assertSame(1, $this->ledgerService->getBalance($this->employee, 'DP'));
     }
 }

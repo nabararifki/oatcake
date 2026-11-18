@@ -82,6 +82,7 @@
                          csrfToken: {{ Js::from(csrf_token()) }},
                          hasActiveClockIn: {{ Js::from($hasActiveClockIn) }},
                          hasCompletedToday: {{ Js::from($hasCompletedToday) }},
+                         isClockInBlockedByUnscheduledPolicy: {{ Js::from((bool) ($isClockInBlockedByUnscheduledPolicy ?? false)) }},
                          shiftEndIso: {{ Js::from($effectiveEndDt?->toIso8601String()) }},
                          i18n: {
                              earlyRemaining: {{ Js::from(__('attendance.early_clockout_remaining', ['remaining' => ':remaining'])) }},
@@ -99,9 +100,23 @@
                              errPayloadTooLarge: {{ Js::from(__('attendance.err_payload_too_large')) }},
                              errPhotoProcessingFailed: {{ Js::from(__('attendance.err_photo_processing_failed')) }},
                              errServerResponse: {{ Js::from(__('attendance.err_server_response')) }},
+                             offlineAttendanceWarning: {{ Js::from(__('pwa.attendance_offline_warning')) }},
+                             unscheduledDisabled: {{ Js::from(__('attendance.unscheduled_clock_in_disabled')) }},
                          }
                      })"
                      class="bg-surface border border-line rounded-2xl p-4 sm:p-5 shadow-sm space-y-4">
+
+                <!-- Peringatan Mode Offline: Presensi GPS & Swafoto Wajib Online -->
+                <div x-show="!isOnline"
+                     x-cloak
+                     x-transition
+                     role="alert"
+                     class="rounded-xl border border-amber-500/40 bg-amber-500/10 px-3.5 py-2.5 text-xs text-amber-900 dark:text-amber-200 flex items-start gap-2.5">
+                    <svg class="w-4 h-4 shrink-0 mt-0.5 text-amber-600 dark:text-amber-300" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" aria-hidden="true">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="m3 3 18 18M8.288 15.038a5.25 5.25 0 0 1 7.424 0M5.106 11.856c1.547-1.547 3.504-2.463 5.565-2.747m3.68.389a9.723 9.723 0 0 1 4.543 2.358M12 18.75h.008v.008H12v-.008ZM1.924 8.674a14.22 14.22 0 0 1 4.86-3.192m3.84-.894a14.23 14.23 0 0 1 11.452 4.086" />
+                    </svg>
+                    <p class="font-medium leading-relaxed">{{ __('pwa.attendance_offline_warning') }}</p>
+                </div>
 
                 <!-- Feedback Alert Banner -->
                 <div x-show="feedbackMessage !== ''"
@@ -237,17 +252,27 @@
                         <!-- Ringkasan Kompak Saldo Cuti Tahunan (AL) & Saldo DP Aktif (DP) -->
                         <span class="inline-flex items-center gap-1.5 rounded-full bg-surface-muted border border-line px-3 py-1 text-2xs font-semibold text-ink">
                             <span class="text-ink-muted">{{ __('dashboard.al_balance_label') }}:</span>
-                            <span class="font-mono font-bold text-ink">{{ number_format((float) ($annualLeaveBalance ?? 0), 2) }} {{ __('dashboard.days_short') }}</span>
+                            <span class="font-mono font-bold text-ink">{{ (int) ($annualLeaveBalance ?? 0) }} {{ __('dashboard.days_short') }}</span>
                         </span>
 
                         <span class="inline-flex items-center gap-1.5 rounded-full bg-surface-muted border border-line px-3 py-1 text-2xs font-semibold text-ink">
                             <span class="text-ink-muted">{{ __('dashboard.dp_balance_label') }}:</span>
-                            <span class="font-mono font-bold text-ink">{{ number_format((float) ($dpBalance ?? 0), 2) }} {{ __('dashboard.days_short') }}</span>
+                            <span class="font-mono font-bold text-ink">{{ (int) ($dpBalance ?? 0) }} {{ __('dashboard.days_short') }}</span>
                         </span>
                     </div>
 
                     <!-- Baris Tindakan Cepat (One-Touch Action) -->
                     <div class="flex flex-col gap-2.5 w-full lg:w-auto lg:min-w-[20rem] shrink-0">
+                        @if ($isClockInBlockedByUnscheduledPolicy ?? false)
+                            <div role="status"
+                                 class="rounded-xl border border-amber-500/40 bg-amber-500/10 px-3.5 py-2.5 text-xs font-medium text-amber-900 dark:text-amber-200 flex items-start gap-2">
+                                <svg class="w-4 h-4 shrink-0 mt-0.5 text-amber-600 dark:text-amber-300" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" aria-hidden="true">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 1 0-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 0 0 2.25-2.25v-6.75a2.25 2.25 0 0 0-2.25-2.25H6.75a2.25 2.25 0 0 0-2.25 2.25v6.75a2.25 2.25 0 0 0 2.25 2.25Z" />
+                                </svg>
+                                <span>{{ __('attendance.unscheduled_clock_in_policy_notice') }}</span>
+                            </div>
+                        @endif
+
                         @if ($isWaitingNextSession)
                             {{-- Kondisi Split Shift: Sesi 1 Selesai, Menunggu / Siap Clock-In Sesi Berikutnya --}}
                             <div class="inline-flex items-center gap-2 rounded-xl bg-amber-500/10 border border-amber-500/30 px-3.5 py-2.5 text-xs font-semibold text-amber-800 dark:text-amber-300">
@@ -258,8 +283,9 @@
                             <button type="button"
                                     x-show="distanceMeters === null || isInsideGeofence"
                                     @click="startClockIn()"
-                                    :disabled="submitting"
-                                    class="bg-accent hover:opacity-95 text-white w-full py-4 px-6 text-base sm:text-lg font-bold rounded-2xl shadow-md transition-all active:scale-[0.99] flex items-center justify-center gap-3 cursor-pointer disabled:opacity-50">
+                                    @if ($isClockInBlockedByUnscheduledPolicy ?? false) disabled @endif
+                                    :disabled="submitting || !isOnline || isClockInBlockedByUnscheduledPolicy"
+                                    class="bg-accent hover:opacity-95 text-white w-full py-4 px-6 text-base sm:text-lg font-bold rounded-2xl shadow-md transition-all active:scale-[0.99] flex items-center justify-center gap-3 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed">
                                 <svg class="w-6 h-6 shrink-0" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
                                     <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0 0 13.5 3h-6a2.25 2.25 0 0 0-2.25 2.25v13.5A2.25 2.25 0 0 0 7.5 21h6a2.25 2.25 0 0 0 2.25-2.25V15m3 0 3-3m0 0-3-3m3 3H9" />
                                 </svg>
@@ -270,7 +296,9 @@
                                     x-show="distanceMeters !== null && !isInsideGeofence"
                                     x-cloak
                                     @click="openOutsideModal()"
-                                    class="bg-accent hover:opacity-95 text-white w-full py-4 px-6 text-base sm:text-lg font-bold rounded-2xl shadow-md transition-all active:scale-[0.99] flex items-center justify-center gap-3 cursor-pointer">
+                                    @if ($isClockInBlockedByUnscheduledPolicy ?? false) disabled @endif
+                                    :disabled="submitting || !isOnline || isClockInBlockedByUnscheduledPolicy"
+                                    class="bg-accent hover:opacity-95 text-white w-full py-4 px-6 text-base sm:text-lg font-bold rounded-2xl shadow-md transition-all active:scale-[0.99] flex items-center justify-center gap-3 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed">
                                 <svg class="w-6 h-6 shrink-0" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
                                     <path stroke-linecap="round" stroke-linejoin="round" d="M6.827 6.175A2.31 2.31 0 0 1 5.186 7.23c-.38.054-.757.112-1.134.175C2.999 7.58 2.25 8.507 2.25 9.574V18a2.25 2.25 0 0 0 2.25 2.25h15A2.25 2.25 0 0 0 21.75 18V9.574c0-1.067-.75-1.994-1.802-2.169a47.865 47.865 0 0 0-1.134-.175 2.31 2.31 0 0 1-1.64-1.055l-.822-1.316a2.192 2.192 0 0 0-1.736-1.039 48.774 48.774 0 0 0-5.232 0 2.192 2.192 0 0 0-1.736 1.039l-.821 1.316Z" />
                                     <path stroke-linecap="round" stroke-linejoin="round" d="M16.5 12.75a4.5 4.5 0 1 1-9 0 4.5 4.5 0 0 1 9 0ZM18.75 10.5h.008v.008h-.008V10.5Z" />
@@ -282,8 +310,9 @@
                             <button type="button"
                                     x-show="distanceMeters === null || isInsideGeofence"
                                     @click="startClockIn()"
-                                    :disabled="submitting"
-                                    class="bg-accent hover:opacity-95 text-white w-full py-4 px-6 text-base sm:text-lg font-bold rounded-2xl shadow-md transition-all active:scale-[0.99] flex items-center justify-center gap-3 cursor-pointer disabled:opacity-50">
+                                    @if ($isClockInBlockedByUnscheduledPolicy ?? false) disabled @endif
+                                    :disabled="submitting || !isOnline || isClockInBlockedByUnscheduledPolicy"
+                                    class="bg-accent hover:opacity-95 text-white w-full py-4 px-6 text-base sm:text-lg font-bold rounded-2xl shadow-md transition-all active:scale-[0.99] flex items-center justify-center gap-3 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed">
                                 <svg class="w-6 h-6 shrink-0" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
                                     <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0 0 13.5 3h-6a2.25 2.25 0 0 0-2.25 2.25v13.5A2.25 2.25 0 0 0 7.5 21h6a2.25 2.25 0 0 0 2.25-2.25V15m3 0 3-3m0 0-3-3m3 3H9" />
                                 </svg>
@@ -294,7 +323,9 @@
                                     x-show="distanceMeters !== null && !isInsideGeofence"
                                     x-cloak
                                     @click="openOutsideModal()"
-                                    class="bg-accent hover:opacity-95 text-white w-full py-4 px-6 text-base sm:text-lg font-bold rounded-2xl shadow-md transition-all active:scale-[0.99] flex items-center justify-center gap-3 cursor-pointer">
+                                    @if ($isClockInBlockedByUnscheduledPolicy ?? false) disabled @endif
+                                    :disabled="submitting || !isOnline || isClockInBlockedByUnscheduledPolicy"
+                                    class="bg-accent hover:opacity-95 text-white w-full py-4 px-6 text-base sm:text-lg font-bold rounded-2xl shadow-md transition-all active:scale-[0.99] flex items-center justify-center gap-3 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed">
                                 <svg class="w-6 h-6 shrink-0" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
                                     <path stroke-linecap="round" stroke-linejoin="round" d="M6.827 6.175A2.31 2.31 0 0 1 5.186 7.23c-.38.054-.757.112-1.134.175C2.999 7.58 2.25 8.507 2.25 9.574V18a2.25 2.25 0 0 0 2.25 2.25h15A2.25 2.25 0 0 0 21.75 18V9.574c0-1.067-.75-1.994-1.802-2.169a47.865 47.865 0 0 0-1.134-.175 2.31 2.31 0 0 1-1.64-1.055l-.822-1.316a2.192 2.192 0 0 0-1.736-1.039 48.774 48.774 0 0 0-5.232 0 2.192 2.192 0 0 0-1.736 1.039l-.821 1.316Z" />
                                     <path stroke-linecap="round" stroke-linejoin="round" d="M16.5 12.75a4.5 4.5 0 1 1-9 0 4.5 4.5 0 0 1 9 0ZM18.75 10.5h.008v.008h-.008V10.5Z" />
@@ -319,8 +350,8 @@
 
                             <button type="button"
                                     @click="startClockOut()"
-                                    :disabled="submitting"
-                                    class="bg-surface-raised border-2 border-line hover:bg-surface-muted text-ink dark:text-zinc-100 w-full py-4 px-6 text-base sm:text-lg font-bold rounded-2xl shadow-md transition-all active:scale-[0.99] flex items-center justify-center gap-3 cursor-pointer disabled:opacity-50">
+                                    :disabled="submitting || !isOnline"
+                                    class="bg-surface-raised border-2 border-line hover:bg-surface-muted text-ink dark:text-zinc-100 w-full py-4 px-6 text-base sm:text-lg font-bold rounded-2xl shadow-md transition-all active:scale-[0.99] flex items-center justify-center gap-3 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed">
                                 <svg class="w-6 h-6 shrink-0" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
                                     <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 9V5.25A2.25 2.25 0 0 1 10.5 3h6a2.25 2.25 0 0 1 2.25 2.25v13.5A2.25 2.25 0 0 1 16.5 21h-6a2.25 2.25 0 0 1-2.25-2.25V15m-3 0-3-3m0 0 3-3m-3 3H15" />
                                 </svg>
@@ -420,7 +451,7 @@
                             </button>
 
                             <button type="submit"
-                                    :disabled="submitting || !selfieInFile"
+                                    :disabled="submitting || !selfieInFile || !isOnline"
                                     class="inline-flex items-center gap-2 rounded-xl bg-accent px-4 py-2 text-xs font-bold text-white shadow-sm hover:opacity-95 disabled:opacity-50 transition cursor-pointer">
                                 <span x-text="submitting ? '{{ __('attendance.compressing_uploading') }}' : '{{ __('attendance.btn_submit_clock_in') }}'"></span>
                             </button>
@@ -485,7 +516,7 @@
                             </button>
 
                             <button type="submit"
-                                    :disabled="submitting || !selfieOutFile"
+                                    :disabled="submitting || !selfieOutFile || !isOnline"
                                     class="inline-flex items-center gap-2 rounded-xl bg-accent px-4 py-2 text-xs font-bold text-white shadow-sm hover:opacity-95 disabled:opacity-50 transition cursor-pointer">
                                 <span x-text="submitting ? '{{ __('attendance.compressing_uploading') }}' : '{{ __('attendance.btn_submit_clock_out') }}'"></span>
                             </button>
@@ -589,7 +620,7 @@
                             </button>
 
                             <button type="submit"
-                                    :disabled="submittingOutside"
+                                    :disabled="submittingOutside || !isOnline"
                                     class="inline-flex items-center gap-2 rounded-xl bg-accent px-4 py-2 text-xs font-bold text-white shadow-sm hover:opacity-95 disabled:opacity-50 transition cursor-pointer">
                                 <span x-text="submittingOutside ? '{{ __('attendance.compressing_uploading') }}' : '{{ __('attendance.btn_outside_attendance') }}'"></span>
                             </button>
@@ -610,6 +641,7 @@
                         csrfToken: config.csrfToken,
                         hasActiveClockIn: config.hasActiveClockIn,
                         hasCompletedToday: config.hasCompletedToday,
+                        isClockInBlockedByUnscheduledPolicy: Boolean(config.isClockInBlockedByUnscheduledPolicy),
                         i18n: config.i18n,
                         shiftEndIso: config.shiftEndIso,
                         earlyRemainingText: '',
@@ -625,6 +657,7 @@
                         isInsideGeofence: true,
 
                         submitting: false,
+                        isOnline: typeof navigator !== 'undefined' ? navigator.onLine : true,
                         feedbackMessage: '',
                         feedbackSuccess: false,
 
@@ -640,6 +673,9 @@
                         submittingOutside: false,
 
                         init() {
+                            this.isOnline = typeof navigator !== 'undefined' ? navigator.onLine : true;
+                            window.addEventListener('online', () => { this.isOnline = true; });
+                            window.addEventListener('offline', () => { this.isOnline = false; });
                             this.updateClock();
                             setInterval(() => this.updateClock(), 10000);
                             this.detectLocation();
@@ -768,6 +804,16 @@
                         },
 
                         openOutsideModal() {
+                            if (this.isClockInBlockedByUnscheduledPolicy) {
+                                this.feedbackSuccess = false;
+                                this.feedbackMessage = this.i18n.unscheduledDisabled;
+                                return;
+                            }
+                            if (!this.isOnline || !navigator.onLine) {
+                                this.feedbackSuccess = false;
+                                this.feedbackMessage = this.i18n.offlineAttendanceWarning;
+                                return;
+                            }
                             window.dispatchEvent(new CustomEvent('open-modal', { detail: 'dashboard-outside-attendance-modal' }));
                         },
 
@@ -863,6 +909,11 @@
                         },
 
                         async submitOutsideAttendance() {
+                            if (!this.isOnline || !navigator.onLine) {
+                                this.feedbackSuccess = false;
+                                this.feedbackMessage = this.i18n.offlineAttendanceWarning;
+                                return;
+                            }
                             if (!this.selfieFile) {
                                 this.feedbackSuccess = false;
                                 this.feedbackMessage = this.i18n.selfieRequired;
@@ -931,6 +982,16 @@
                         },
 
                         startClockIn() {
+                            if (this.isClockInBlockedByUnscheduledPolicy) {
+                                this.feedbackSuccess = false;
+                                this.feedbackMessage = this.i18n.unscheduledDisabled;
+                                return;
+                            }
+                            if (!this.isOnline || !navigator.onLine) {
+                                this.feedbackSuccess = false;
+                                this.feedbackMessage = this.i18n.offlineAttendanceWarning;
+                                return;
+                            }
                             if (this.distanceMeters !== null && !this.isInsideGeofence) {
                                 this.openOutsideModal();
                                 return;
@@ -953,6 +1014,11 @@
                         },
 
                         startClockOut() {
+                            if (!this.isOnline || !navigator.onLine) {
+                                this.feedbackSuccess = false;
+                                this.feedbackMessage = this.i18n.offlineAttendanceWarning;
+                                return;
+                            }
                             if (this.isEarlyClockOut()) {
                                 this.earlyRemainingText = this.i18n.earlyRemaining.replace(':remaining', this.formatRemaining());
                                 window.dispatchEvent(new CustomEvent('open-modal', { detail: 'early-clockout-confirm-modal' }));
@@ -982,6 +1048,11 @@
                         },
 
                         async submitSelfieAttendance(action) {
+                            if (!this.isOnline || !navigator.onLine) {
+                                this.feedbackSuccess = false;
+                                this.feedbackMessage = this.i18n.offlineAttendanceWarning;
+                                return;
+                            }
                             const file = action === 'clock-in' ? this.selfieInFile : this.selfieOutFile;
                             if (!file) {
                                 this.feedbackSuccess = false;
@@ -1436,7 +1507,7 @@
                                 </a>
                             </div>
                             <div class="mt-2 text-2xl font-bold text-ink">
-                                {{ number_format((float) ($annualLeaveBalance ?? 0), 2) }} <span class="text-xs font-normal text-ink-muted">{{ __('common.working_days_sprint4') }}</span>
+                                {{ (int) ($annualLeaveBalance ?? 0) }} <span class="text-xs font-normal text-ink-muted">{{ __('common.working_days_sprint4') }}</span>
                             </div>
                             <p class="mt-1 text-xs text-ink-faint">
                                 {{ __('common.sprint4_leave_desc') }}
@@ -1452,7 +1523,7 @@
                                 </a>
                             </div>
                             <div class="mt-2 text-2xl font-bold text-ink">
-                                {{ number_format((float) ($dpBalance ?? 0), 2) }} <span class="text-xs font-normal text-ink-muted">{{ __('common.days_unit') }}</span>
+                                {{ (int) ($dpBalance ?? 0) }} <span class="text-xs font-normal text-ink-muted">{{ __('common.days_unit') }}</span>
                             </div>
                             <p class="mt-1 text-xs text-ink-faint">
                                 {{ __('common.dp_desc') }}

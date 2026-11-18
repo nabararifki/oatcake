@@ -20,7 +20,8 @@
             </div>
         </form>
 
-        <form method="POST" action="{{ route('logout') }}">
+        <form method="POST" action="{{ route('logout') }}" data-pwa-logout-form
+              onsubmit="if (window.oatcakeLogoutSubmit) { event.preventDefault(); window.oatcakeLogoutSubmit(this); }">
             @csrf
 
             <button type="submit" class="underline text-sm text-ink-muted hover:text-ink rounded-md focus:outline-none focus:ring-2 focus:ring-accent transition-colors">

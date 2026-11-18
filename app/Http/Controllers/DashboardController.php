@@ -154,12 +154,12 @@ class DashboardController extends Controller
         $todayAttendance = null;
         $todaySchedule = null;
         $todaySessionsState = null;
-        $annualLeaveBalance = 0.0;
-        $dpBalance = 0.0;
+        $annualLeaveBalance = 0;
+        $dpBalance = 0;
 
         if ($employee) {
-            $annualLeaveBalance = $this->leaveLedgerService->getBalance($employee, 'AL');
-            $dpBalance = $this->leaveLedgerService->getBalance($employee, 'DP');
+            $annualLeaveBalance = (int) $this->leaveLedgerService->getBalance($employee, 'AL');
+            $dpBalance = (int) $this->leaveLedgerService->getBalance($employee, 'DP');
         }
 
         if (! $isSuperAdmin && $employee) {
@@ -183,6 +183,16 @@ class DashboardController extends Controller
             $todaySchedule = $this->geofenceService->resolveTodaySchedule($employee, $nowWib, false);
             $todaySessionsState = $this->geofenceService->resolveTodaySessionsState($employee, $nowWib);
         }
+
+        $hasActiveScheduleToday = $employee !== null
+            && ($todaySessionsState['working_schedules'] ?? collect())->isNotEmpty()
+            && ! $this->geofenceService->isEmployeeOnApprovedLeave($employee, $nowWib);
+        $autoAssignShiftEnabled = (bool) ($company?->auto_assign_shift_on_clock_in ?? true);
+        $isClockInBlockedByUnscheduledPolicy = ! $isSuperAdmin
+            && $employee !== null
+            && ! $hasActiveScheduleToday
+            && ! $autoAssignShiftEnabled
+            && ! $todayAttendance;
 
         $managerStats = null;
         $subordinates = collect();
@@ -291,6 +301,9 @@ class DashboardController extends Controller
             'todayAttendance',
             'todaySchedule',
             'todaySessionsState',
+            'hasActiveScheduleToday',
+            'autoAssignShiftEnabled',
+            'isClockInBlockedByUnscheduledPolicy',
             'annualLeaveBalance',
             'dpBalance',
             'isHoliday',

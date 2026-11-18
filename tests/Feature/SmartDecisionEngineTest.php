@@ -776,4 +776,110 @@ class SmartDecisionEngineTest extends TestCase
             ->getJson(route('leave.smartAnalysis', $leaveRequest))
             ->assertForbidden();
     }
+
+    /**
+     * Skenario 8: Mode Debug SPK SMART & Simulator What-If (Eksklusif Super Admin).
+     * - Hanya super_admin yang dapat mengakses endpoint POST /leave/smart-debug dan melihat panel Mode Debug di /leave.
+     * - Role super_user, admin, manager, dan user wajib menerima HTTP 403 Forbidden.
+     * - Simulator Mode A (multi-kandidat), Mode B (mandiri), dan inspeksi telemetri database bekerja akurat tanpa mengubah data produksi.
+     */
+    public function test_scenario_8_super_admin_exclusive_smart_debug_simulator_and_telemetry_inspection(): void
+    {
+        Carbon::setTestNow(Carbon::create(2026, 11, 10, 9, 0, 0, 'Asia/Jakarta'));
+
+        $this->ledgerService->recordAccrual($this->staffEmployeeA, 'AL', 12, [
+            'accrual_year' => 2026,
+            'expires_at' => '2026-12-31',
+        ]);
+
+        $alType = LeaveType::findByCode('AL', $this->company->id);
+        $leaveRequest = $this->leaveRequestService->submitRequest($this->staffEmployeeA, [
+            'leave_type_id' => $alType->id,
+            'start_date' => '2026-12-20',
+            'end_date' => '2026-12-21',
+            'reason' => 'Simulasi inspeksi telemetri debug SPK SMART.',
+        ]);
+
+        $superAdmin = User::factory()->create([
+            'company_id' => null,
+            'name' => 'Root Super Admin',
+            'username' => 'root.smart.debug',
+            'email' => 'root.smart.debug@oatcake.id',
+            'role' => 'super_admin',
+            'is_active' => true,
+        ]);
+
+        $superUser = User::factory()->create([
+            'company_id' => $this->company->id,
+            'name' => 'GM Super User',
+            'username' => 'gm.smart.debug',
+            'email' => 'gm.smart.debug@novotelyia.com',
+            'role' => 'super_user',
+            'is_active' => true,
+        ]);
+
+        $payloadModeA = [
+            'weights' => ['C1' => 30, 'C2' => 20, 'C3' => 15, 'C4' => 15, 'C5' => 20],
+            'min_staff_per_shift' => 3,
+            'total_department_staff' => 4,
+            'leave_request_id' => $leaveRequest->id,
+            'candidates' => [
+                ['name' => 'Kandidat Alpha', 'C1' => 85, 'C2' => 30, 'C3' => 98, 'C4' => 1, 'C5' => 0],
+                ['name' => 'Kandidat Beta', 'C1' => 45, 'C2' => 5, 'C3' => 90, 'C4' => 0, 'C5' => 3],
+            ],
+        ];
+
+        // 1. Non-super_admin (super_user, admin, manager, user) wajib ditolak 403 Forbidden
+        foreach ([$superUser, $this->adminUser, $this->managerUser, $this->staffUserA] as $nonSuperAdmin) {
+            $this->actingAs($nonSuperAdmin)
+                ->postJson(route('leave.smartDebug'), $payloadModeA)
+                ->assertForbidden();
+
+            $this->actingAs($nonSuperAdmin)
+                ->get(route('leave.index'))
+                ->assertOk()
+                ->assertDontSee('smart-debug-modal', false)
+                ->assertDontSee(__('leave.btn_smart_debug'));
+        }
+
+        // 2. Super Admin melihat tombol & modal Mode Debug di GET /leave
+        $this->actingAs($superAdmin)
+            ->withSession(['active_company_id' => $this->company->id])
+            ->get(route('leave.index'))
+            ->assertOk()
+            ->assertSee('smart-debug-modal', false)
+            ->assertSee(__('leave.btn_smart_debug'));
+
+        // 3. Super Admin menjalankan simulasi Mode A + inspeksi telemetri DB -> HTTP 200 OK
+        $modeAResponse = $this->actingAs($superAdmin)
+            ->postJson(route('leave.smartDebug'), $payloadModeA);
+
+        $modeAResponse->assertOk()
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('mode', 'A')
+            ->assertJsonPath('weights.normalized.C1', 0.3)
+            ->assertJsonPath('results.0.name', 'Kandidat Alpha')
+            ->assertJsonPath('results.0.rank', 1)
+            ->assertJsonPath('results.0.can_approve_within_quota', true)
+            ->assertJsonPath('results.1.name', 'Kandidat Beta')
+            ->assertJsonPath('results.1.can_approve_within_quota', false)
+            ->assertJsonStructure([
+                'results' => [
+                    ['rank', 'name', 'smart_score', 'recommendation', 'can_approve_within_quota', 'criteria' => ['C1', 'C2', 'C3', 'C4', 'C5']],
+                ],
+                'telemetry' => ['employee_id', 'employee_name', 'department', 'attendance_90d', 'leave_frequency_90d'],
+            ]);
+
+        // 4. Super Admin menjalankan simulasi Mode B langsung dari DB telemetry tanpa kandidat manual
+        $modeBResponse = $this->actingAs($superAdmin)
+            ->postJson(route('leave.smartDebug'), [
+                'weights' => ['C1' => 30, 'C2' => 20, 'C3' => 15, 'C4' => 15, 'C5' => 20],
+                'leave_request_id' => $leaveRequest->id,
+                'candidates' => [],
+            ]);
+
+        $modeBResponse->assertOk()
+            ->assertJsonPath('mode', 'B')
+            ->assertJsonCount(1, 'results');
+    }
 }

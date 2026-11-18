@@ -27,6 +27,17 @@
                     </button>
                 @endif
 
+                @if ($canDebugSmart ?? false)
+                    <button type="button"
+                            @click="$dispatch('open-modal', 'smart-debug-modal')"
+                            class="inline-flex items-center gap-1.5 rounded-xl border border-amber-500/40 bg-amber-500/10 px-3.5 py-2 text-xs font-semibold text-amber-800 dark:text-amber-300 hover:bg-amber-500/20 transition cursor-pointer">
+                        <svg class="w-4 h-4 shrink-0" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" aria-hidden="true">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M9.75 3.104v5.714a2.25 2.25 0 0 1-.659 1.591L5 14.5M9.75 3.104c-.251.023-.501.05-.75.082m.75-.082a24.301 24.301 0 0 1 4.5 0m0 0v5.714c0 .597.237 1.17.659 1.591L19.8 15.3M14.25 3.104c.251.023.501.05.75.082M19.8 15.3l-1.57.393A9.065 9.065 0 0 1 12 15a9.065 9.065 0 0 0-6.23-.693L5 14.5m14.8.8 1.402 1.402c1.232 1.232.65 3.318-1.067 3.611A48.309 48.309 0 0 1 12 21c-2.773 0-5.491-.235-8.135-.687-1.718-.293-2.3-2.379-1.067-3.61L5 14.5" />
+                        </svg>
+                        <span>{{ __('leave.btn_smart_debug') }}</span>
+                    </button>
+                @endif
+
                 @if ($canManageSmartWeights ?? false)
                     <button type="button"
                             @click="$dispatch('open-modal', 'smart-weights-modal')"
@@ -96,6 +107,9 @@
              defaultWeightDeptId: {{ Js::from($defaultWeightDeptId) }},
              ledgerEmployees: {{ Js::from($ledgerEmployeesList) }},
              defaultLedgerEmployeeId: {{ Js::from($defaultLedgerEmployeeId) }},
+             smartDebugUrl: {{ Js::from(route('leave.smartDebug')) }},
+             csrfToken: {{ Js::from(csrf_token()) }},
+             debugRequests: {{ Js::from($debugRequestsList ?? []) }},
          })">
 
         @if (session('success'))
@@ -130,7 +144,7 @@
                         <div class="rounded-xl bg-surface-muted/60 border border-line p-3">
                             <div class="text-2xs text-ink-muted">{{ __('leave.label_ledger_balance') }}</div>
                             <div class="mt-1 text-lg font-mono font-bold text-ink">
-                                {{ number_format((float) $alQuota['ledger_balance'], 2) }}
+                                {{ (int) $alQuota['ledger_balance'] }}
                                 <span class="text-2xs font-sans font-normal text-ink-muted">{{ __('leave.days_unit') }}</span>
                             </div>
                         </div>
@@ -138,7 +152,7 @@
                         <div class="rounded-xl bg-amber-500/10 border border-amber-500/20 p-3">
                             <div class="text-2xs text-amber-700 dark:text-amber-300">{{ __('leave.label_reserved_balance') }}</div>
                             <div class="mt-1 text-lg font-mono font-bold text-amber-700 dark:text-amber-300">
-                                {{ number_format((float) $alQuota['reserved_days'], 2) }}
+                                {{ (int) $alQuota['reserved_days'] }}
                                 <span class="text-2xs font-sans font-normal">{{ __('leave.days_unit') }}</span>
                             </div>
                         </div>
@@ -146,7 +160,7 @@
                         <div class="rounded-xl bg-emerald-500/10 border border-emerald-500/20 p-3">
                             <div class="text-2xs text-emerald-700 dark:text-emerald-300">{{ __('leave.label_available_balance') }}</div>
                             <div class="mt-1 text-lg font-mono font-bold text-emerald-700 dark:text-emerald-300">
-                                {{ number_format((float) $alQuota['available_balance'], 2) }}
+                                {{ (int) $alQuota['available_balance'] }}
                                 <span class="text-2xs font-sans font-normal">{{ __('leave.days_unit') }}</span>
                             </div>
                         </div>
@@ -168,7 +182,7 @@
                         <div class="rounded-xl bg-surface-muted/60 border border-line p-3">
                             <div class="text-2xs text-ink-muted">{{ __('leave.label_ledger_balance') }}</div>
                             <div class="mt-1 text-lg font-mono font-bold text-ink">
-                                {{ number_format((float) $dpQuota['ledger_balance'], 2) }}
+                                {{ (int) $dpQuota['ledger_balance'] }}
                                 <span class="text-2xs font-sans font-normal text-ink-muted">{{ __('leave.days_unit') }}</span>
                             </div>
                         </div>
@@ -176,7 +190,7 @@
                         <div class="rounded-xl bg-amber-500/10 border border-amber-500/20 p-3">
                             <div class="text-2xs text-amber-700 dark:text-amber-300">{{ __('leave.label_reserved_balance') }}</div>
                             <div class="mt-1 text-lg font-mono font-bold text-amber-700 dark:text-amber-300">
-                                {{ number_format((float) $dpQuota['reserved_days'], 2) }}
+                                {{ (int) $dpQuota['reserved_days'] }}
                                 <span class="text-2xs font-sans font-normal">{{ __('leave.days_unit') }}</span>
                             </div>
                         </div>
@@ -184,7 +198,7 @@
                         <div class="rounded-xl bg-emerald-500/10 border border-emerald-500/20 p-3">
                             <div class="text-2xs text-emerald-700 dark:text-emerald-300">{{ __('leave.label_available_balance') }}</div>
                             <div class="mt-1 text-lg font-mono font-bold text-emerald-700 dark:text-emerald-300">
-                                {{ number_format((float) $dpQuota['available_balance'], 2) }}
+                                {{ (int) $dpQuota['available_balance'] }}
                                 <span class="text-2xs font-sans font-normal">{{ __('leave.days_unit') }}</span>
                             </div>
                         </div>
@@ -361,7 +375,7 @@
                         </td>
 
                         <td class="font-mono text-xs font-bold text-ink whitespace-nowrap">
-                            {{ number_format((float) $req->total_days, 2) }} {{ __('leave.days_unit') }}
+                            {{ (int) $req->total_days }} {{ __('leave.days_unit') }}
                         </td>
 
                         @if ($showEmployeeColumn)
@@ -539,7 +553,7 @@
                         </label>
                         <template x-if="selectedType && selectedType.requires_quota && selectedType.available_balance !== null">
                             <span class="inline-flex items-center rounded-md bg-emerald-500/10 px-2 py-0.5 text-2xs font-semibold text-emerald-700 dark:text-emerald-300 border border-emerald-500/20"
-                                  x-text="`${Number(selectedType.available_balance).toFixed(2)} {{ __('leave.days_unit') }}`"></span>
+                                  x-text="`${Math.round(Number(selectedType.available_balance || 0))} {{ __('leave.days_unit') }}`"></span>
                         </template>
                         <template x-if="selectedType && !selectedType.requires_quota">
                             <span class="inline-flex items-center rounded-md bg-surface-muted px-2 py-0.5 text-2xs font-medium text-ink-muted border border-line">
@@ -614,7 +628,7 @@
 
                         <div class="rounded-xl bg-surface border border-line p-2.5">
                             <div class="text-2xs text-ink-muted">{{ __('leave.preview_effective_days') }}</div>
-                            <div class="mt-0.5 text-sm font-mono font-bold text-emerald-600 dark:text-emerald-400" x-text="effectiveDays.toFixed(2)">0.00</div>
+                            <div class="mt-0.5 text-sm font-mono font-bold text-emerald-600 dark:text-emerald-400" x-text="Math.round(Number(effectiveDays || 0))">0</div>
                         </div>
                     </div>
                 </div>
@@ -766,7 +780,7 @@
 
                         <div class="rounded-xl bg-surface border border-line p-2.5">
                             <div class="text-2xs text-ink-muted">{{ __('leave.preview_effective_days') }}</div>
-                            <div class="mt-0.5 text-sm font-mono font-bold text-emerald-600 dark:text-emerald-400" x-text="Number(editForm.effectiveDays || 0).toFixed(2)">0.00</div>
+                            <div class="mt-0.5 text-sm font-mono font-bold text-emerald-600 dark:text-emerald-400" x-text="Math.round(Number(editForm.effectiveDays || 0))">0</div>
                         </div>
                     </div>
                 </div>
@@ -1072,13 +1086,13 @@
                                     <div class="text-2xs uppercase text-ink-muted font-semibold">{{ __('leave.card_al_title') }}</div>
                                     <div class="text-xs text-ink-muted">
                                         {{ __('leave.label_ledger_balance') }}:
-                                        <span class="font-mono font-bold text-ink" x-text="Number(ledgerData.balances.AL?.ledger_balance || 0).toFixed(2)"></span>
+                                        <span class="font-mono font-bold text-ink" x-text="Math.round(Number(ledgerData.balances.AL?.ledger_balance || 0))"></span>
                                     </div>
                                 </div>
                                 <div class="text-right">
                                     <div class="text-2xs text-emerald-700 dark:text-emerald-300">{{ __('leave.label_available_balance') }}</div>
                                     <div class="text-base font-mono font-bold text-emerald-700 dark:text-emerald-300"
-                                         x-text="`${Number(ledgerData.balances.AL?.available_balance || 0).toFixed(2)} {{ __('leave.days_unit') }}`"></div>
+                                         x-text="`${Math.round(Number(ledgerData.balances.AL?.available_balance || 0))} {{ __('leave.days_unit') }}`"></div>
                                 </div>
                             </div>
 
@@ -1087,13 +1101,13 @@
                                     <div class="text-2xs uppercase text-ink-muted font-semibold">{{ __('leave.card_dp_title') }}</div>
                                     <div class="text-xs text-ink-muted">
                                         {{ __('leave.label_ledger_balance') }}:
-                                        <span class="font-mono font-bold text-ink" x-text="Number(ledgerData.balances.DP?.ledger_balance || 0).toFixed(2)"></span>
+                                        <span class="font-mono font-bold text-ink" x-text="Math.round(Number(ledgerData.balances.DP?.ledger_balance || 0))"></span>
                                     </div>
                                 </div>
                                 <div class="text-right">
                                     <div class="text-2xs text-emerald-700 dark:text-emerald-300">{{ __('leave.label_available_balance') }}</div>
                                     <div class="text-base font-mono font-bold text-emerald-700 dark:text-emerald-300"
-                                         x-text="`${Number(ledgerData.balances.DP?.available_balance || 0).toFixed(2)} {{ __('leave.days_unit') }}`"></div>
+                                         x-text="`${Math.round(Number(ledgerData.balances.DP?.available_balance || 0))} {{ __('leave.days_unit') }}`"></div>
                                 </div>
                             </div>
                         </div>
@@ -1200,9 +1214,9 @@
                                                 <td class="px-3 py-2 uppercase text-2xs font-mono text-ink-muted" x-text="entry.transaction_type"></td>
                                                 <td class="px-3 py-2 font-mono font-bold"
                                                     :class="Number(entry.amount) >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'"
-                                                    x-text="`${Number(entry.amount) > 0 ? '+' : ''}${Number(entry.amount).toFixed(2)}`"></td>
-                                                <td class="px-3 py-2 font-mono text-ink" x-text="Number(entry.remaining_amount).toFixed(2)"></td>
-                                                <td class="px-3 py-2 font-mono font-bold text-ink" x-text="Number(entry.balance_after).toFixed(2)"></td>
+                                                    x-text="`${Number(entry.amount) > 0 ? '+' : ''}${Math.round(Number(entry.amount || 0))}`"></td>
+                                                <td class="px-3 py-2 font-mono text-ink" x-text="Math.round(Number(entry.remaining_amount || 0))"></td>
+                                                <td class="px-3 py-2 font-mono font-bold text-ink" x-text="Math.round(Number(entry.balance_after || 0))"></td>
                                                 <td class="px-3 py-2 font-mono text-2xs text-ink-muted" x-text="entry.expires_at || '—'"></td>
                                                 <td class="px-3 py-2 text-2xs text-ink">
                                                     <div x-text="entry.notes || '—'"></div>
@@ -1385,7 +1399,7 @@
                                            name="default_annual_quota"
                                            min="0"
                                            max="365"
-                                           step="0.5"
+                                           step="1"
                                            value="{{ $lt->getEffectiveAnnualQuota($currentCompany?->id) }}"
                                            class="w-full rounded-xl border border-line bg-surface px-3 py-1.5 text-xs font-mono text-ink focus:outline-none focus:ring-2 focus:ring-accent" />
                                 </div>
@@ -1402,6 +1416,256 @@
                 </div>
             </x-ui.modal>
         @endif
+
+        @if ($canDebugSmart ?? false)
+            <x-ui.modal name="smart-debug-modal" :title="__('leave.modal_smart_debug_title')" maxWidth="5xl">
+                <div class="space-y-5">
+                    <p class="text-xs text-ink-muted leading-relaxed">
+                        {{ __('leave.modal_smart_debug_desc') }}
+                    </p>
+
+                    <!-- Quick Scenario Presets -->
+                    <div class="rounded-2xl border border-line bg-surface-muted/40 p-3.5 space-y-2">
+                        <div class="text-2xs font-bold uppercase tracking-wider text-ink-muted">
+                            {{ __('leave.debug_preset_label') }}
+                        </div>
+                        <div class="flex flex-wrap gap-2">
+                            <button type="button"
+                                    @click="applyDebugPreset('mode_a')"
+                                    class="rounded-xl border border-line bg-surface px-3 py-1.5 text-xs font-semibold text-ink hover:bg-surface-muted transition cursor-pointer">
+                                {{ __('leave.debug_preset_mode_a') }}
+                            </button>
+                            <button type="button"
+                                    @click="applyDebugPreset('mode_b')"
+                                    class="rounded-xl border border-line bg-surface px-3 py-1.5 text-xs font-semibold text-ink hover:bg-surface-muted transition cursor-pointer">
+                                {{ __('leave.debug_preset_mode_b') }}
+                            </button>
+                            <button type="button"
+                                    @click="applyDebugPreset('critical_staff')"
+                                    class="rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-1.5 text-xs font-semibold text-amber-800 dark:text-amber-300 hover:bg-amber-500/20 transition cursor-pointer">
+                                {{ __('leave.debug_preset_critical_staff') }}
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Bobot C1..C5 & Parameter Formasi Shift -->
+                    <div class="grid grid-cols-1 lg:grid-cols-12 gap-4">
+                        <div class="lg:col-span-7 rounded-2xl border border-line bg-surface p-4 space-y-3">
+                            <div class="flex items-center justify-between gap-2">
+                                <span class="text-xs font-bold text-ink">{{ __('leave.debug_weights_section') }}</span>
+                                <span class="inline-flex items-center rounded-full px-2.5 py-0.5 text-2xs font-mono font-bold border"
+                                      :class="debugWeightSum === 100 ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border-emerald-500/30' : 'bg-red-500/10 text-red-700 dark:text-red-300 border-red-500/30'"
+                                      x-text="`{{ __('leave.debug_weight_sum') }}: ${debugWeightSum} / 100`"></span>
+                            </div>
+
+                            <div class="grid grid-cols-2 sm:grid-cols-5 gap-2.5">
+                                <template x-for="code in ['C1', 'C2', 'C3', 'C4', 'C5']" :key="code">
+                                    <div class="space-y-1">
+                                        <label class="block text-2xs font-mono font-bold text-ink-muted" x-text="code"></label>
+                                        <input type="number"
+                                               min="0"
+                                               max="100"
+                                               step="1"
+                                               x-model.number="debugForm.weights[code]"
+                                               class="w-full rounded-xl border border-line bg-surface-muted px-2.5 py-1.5 text-xs font-mono text-ink focus:outline-none focus:ring-2 focus:ring-accent" />
+                                    </div>
+                                </template>
+                            </div>
+                        </div>
+
+                        <div class="lg:col-span-5 rounded-2xl border border-line bg-surface p-4 space-y-3">
+                            <div class="grid grid-cols-2 gap-3">
+                                <div class="space-y-1">
+                                    <label class="block text-2xs font-semibold text-ink-muted">
+                                        {{ __('leave.debug_min_staff_label') }}
+                                    </label>
+                                    <input type="number"
+                                           min="1"
+                                           max="500"
+                                           step="1"
+                                           x-model.number="debugForm.min_staff_per_shift"
+                                           class="w-full rounded-xl border border-line bg-surface-muted px-2.5 py-1.5 text-xs font-mono text-ink focus:outline-none focus:ring-2 focus:ring-accent" />
+                                </div>
+                                <div class="space-y-1">
+                                    <label class="block text-2xs font-semibold text-ink-muted">
+                                        {{ __('leave.debug_total_staff_label') }}
+                                    </label>
+                                    <input type="number"
+                                           min="1"
+                                           max="2000"
+                                           step="1"
+                                           x-model.number="debugForm.total_department_staff"
+                                           class="w-full rounded-xl border border-line bg-surface-muted px-2.5 py-1.5 text-xs font-mono text-ink focus:outline-none focus:ring-2 focus:ring-accent" />
+                                </div>
+                            </div>
+
+                            <div class="space-y-1">
+                                <label class="block text-2xs font-semibold text-ink-muted">
+                                    {{ __('leave.debug_telemetry_source') }}
+                                </label>
+                                <select x-model="debugForm.leave_request_id"
+                                        class="w-full rounded-xl border border-line bg-surface-muted px-2.5 py-1.5 text-xs text-ink focus:outline-none focus:ring-2 focus:ring-accent">
+                                    <option value="">{{ __('leave.debug_select_request') }}</option>
+                                    <template x-for="reqItem in debugRequests" :key="reqItem.id">
+                                        <option :value="reqItem.id"
+                                                x-text="`#${reqItem.id} - ${reqItem.employee_name} (${reqItem.leave_type_code}, ${reqItem.total_days} {{ __('leave.days_unit') }}, ${reqItem.start_date})`"></option>
+                                    </template>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Matriks Kandidat What-If -->
+                    <div class="rounded-2xl border border-line bg-surface p-4 space-y-3">
+                        <div class="flex flex-wrap items-center justify-between gap-2">
+                            <span class="text-xs font-bold text-ink">{{ __('leave.debug_candidates_section') }}</span>
+                            <button type="button"
+                                    @click="addDebugCandidate()"
+                                    class="inline-flex items-center gap-1 rounded-xl border border-line bg-surface-muted px-3 py-1.5 text-2xs font-semibold text-ink hover:bg-surface transition cursor-pointer">
+                                <svg class="w-3.5 h-3.5 shrink-0" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" aria-hidden="true">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+                                </svg>
+                                <span>{{ __('leave.debug_btn_add_candidate') }}</span>
+                            </button>
+                        </div>
+
+                        <div class="w-full overflow-x-auto rounded-xl border border-line">
+                            <table class="w-full text-left text-xs border-collapse">
+                                <thead class="bg-surface-muted/70 text-2xs uppercase text-ink-muted">
+                                    <tr>
+                                        <th class="px-3 py-2">{{ __('leave.debug_candidate_name') }}</th>
+                                        <th class="px-2 py-2 font-mono">C1 (%)</th>
+                                        <th class="px-2 py-2 font-mono">C2 (d)</th>
+                                        <th class="px-2 py-2 font-mono">C3 (%)</th>
+                                        <th class="px-2 py-2 font-mono">C4 (d)</th>
+                                        <th class="px-2 py-2 font-mono">C5 (d)</th>
+                                        <th class="px-2 py-2 text-right">{{ __('leave.col_actions') }}</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="divide-y divide-line">
+                                    <template x-for="(cand, idx) in debugForm.candidates" :key="idx">
+                                        <tr>
+                                            <td class="px-2.5 py-2 min-w-[10rem]">
+                                                <input type="text"
+                                                       x-model="cand.name"
+                                                       class="w-full rounded-lg border border-line bg-surface-muted px-2.5 py-1 text-xs text-ink focus:outline-none focus:ring-2 focus:ring-accent" />
+                                            </td>
+                                            <td class="px-1.5 py-2 w-20">
+                                                <input type="number" step="1" x-model.number="cand.C1" class="w-full rounded-lg border border-line bg-surface-muted px-2 py-1 text-xs font-mono text-ink" />
+                                            </td>
+                                            <td class="px-1.5 py-2 w-20">
+                                                <input type="number" step="1" x-model.number="cand.C2" class="w-full rounded-lg border border-line bg-surface-muted px-2 py-1 text-xs font-mono text-ink" />
+                                            </td>
+                                            <td class="px-1.5 py-2 w-20">
+                                                <input type="number" step="1" x-model.number="cand.C3" class="w-full rounded-lg border border-line bg-surface-muted px-2 py-1 text-xs font-mono text-ink" />
+                                            </td>
+                                            <td class="px-1.5 py-2 w-20">
+                                                <input type="number" step="1" x-model.number="cand.C4" class="w-full rounded-lg border border-line bg-surface-muted px-2 py-1 text-xs font-mono text-ink" />
+                                            </td>
+                                            <td class="px-1.5 py-2 w-20">
+                                                <input type="number" step="1" x-model.number="cand.C5" class="w-full rounded-lg border border-line bg-surface-muted px-2 py-1 text-xs font-mono text-ink" />
+                                            </td>
+                                            <td class="px-2.5 py-2 text-right">
+                                                <button type="button"
+                                                        @click="removeDebugCandidate(idx)"
+                                                        class="rounded-lg border border-red-500/30 bg-red-500/10 px-2.5 py-1 text-2xs font-semibold text-red-700 dark:text-red-300 hover:bg-red-500/20 transition cursor-pointer">
+                                                    {{ __('leave.debug_btn_remove_candidate') }}
+                                                </button>
+                                            </td>
+                                        </tr>
+                                    </template>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <div x-show="debugError !== ''" x-cloak class="rounded-xl border border-red-500/30 bg-red-500/10 px-3.5 py-2.5 text-xs font-medium text-red-700 dark:text-red-300" x-text="debugError"></div>
+
+                    <div class="flex items-center justify-end gap-3">
+                        <button type="button"
+                                @click="runSmartDebug()"
+                                :disabled="debugLoading || debugWeightSum !== 100"
+                                class="inline-flex items-center gap-2 rounded-xl bg-accent px-4 py-2 text-xs font-bold text-accent-fg shadow-sm hover:opacity-95 transition cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed">
+                            <span x-show="!debugLoading">{{ __('leave.debug_btn_run_simulation') }}</span>
+                            <span x-show="debugLoading" x-cloak>{{ __('leave.debug_running_simulation') }}</span>
+                        </button>
+                    </div>
+
+                    <!-- Output Peringkat, Trace Rumus, & Telemetri Mentah -->
+                    <template x-if="debugResult">
+                        <div class="space-y-4 pt-2 border-t border-line">
+                            <div class="flex flex-wrap items-center justify-between gap-2">
+                                <span class="text-xs font-bold text-ink">{{ __('leave.debug_results_section') }}</span>
+                                <div class="flex flex-wrap items-center gap-2 text-2xs font-mono">
+                                    <span class="rounded-full border border-accent/30 bg-accent/10 px-2.5 py-0.5 font-bold text-accent"
+                                          x-text="debugResult.mode_label"></span>
+                                    <span class="rounded-full border border-line bg-surface-muted px-2.5 py-0.5 text-ink-muted"
+                                          x-text="`${debugResult.formation?.min_staff_per_shift} / ${debugResult.formation?.total_department_staff}`"></span>
+                                </div>
+                            </div>
+
+                            <div class="space-y-3">
+                                <template x-for="res in (debugResult.results || [])" :key="res.rank">
+                                    <div class="rounded-2xl border border-line bg-surface-muted/30 p-3.5 space-y-2.5">
+                                        <div class="flex flex-wrap items-center justify-between gap-2">
+                                            <div class="flex items-center gap-2">
+                                                <span class="inline-flex items-center rounded-lg bg-accent px-2 py-0.5 text-2xs font-mono font-bold text-accent-fg"
+                                                      x-text="`#${res.rank}`"></span>
+                                                <span class="text-sm font-bold text-ink" x-text="res.name"></span>
+                                            </div>
+                                            <div class="flex flex-wrap items-center gap-2">
+                                                <span class="inline-flex items-center rounded-md px-2.5 py-0.5 text-2xs font-mono font-bold border"
+                                                      :class="res.can_approve_within_quota ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border-emerald-500/30' : 'bg-red-500/10 text-red-700 dark:text-red-300 border-red-500/30'"
+                                                      x-text="res.can_approve_within_quota
+                                                          ? `OK (${res.remaining_staff_if_approved} >= ${debugResult.formation?.min_staff_per_shift})`
+                                                          : `BREACH (${res.remaining_staff_if_approved} < ${debugResult.formation?.min_staff_per_shift})`"></span>
+                                                <span class="inline-flex items-center rounded-md border border-line bg-surface px-2.5 py-0.5 text-xs font-mono font-bold text-ink"
+                                                      x-text="`${Number(res.smart_score || 0).toFixed(2)} - ${res.recommendation_label}`"></span>
+                                            </div>
+                                        </div>
+
+                                        <div class="w-full overflow-x-auto rounded-xl border border-line bg-surface">
+                                            <table class="w-full text-left text-2xs border-collapse">
+                                                <thead class="bg-surface-muted/60 uppercase text-ink-muted">
+                                                    <tr>
+                                                        <th class="px-2.5 py-1.5 font-mono">Crit</th>
+                                                        <th class="px-2.5 py-1.5">Raw / Clamped</th>
+                                                        <th class="px-2.5 py-1.5 font-mono">Formula</th>
+                                                        <th class="px-2.5 py-1.5 font-mono text-right">u_j</th>
+                                                        <th class="px-2.5 py-1.5 font-mono text-right">w'_j</th>
+                                                        <th class="px-2.5 py-1.5 font-mono text-right">Score</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody class="divide-y divide-line">
+                                                    <template x-for="cCode in ['C1', 'C2', 'C3', 'C4', 'C5']" :key="cCode">
+                                                        <tr x-show="res.criteria && res.criteria[cCode]">
+                                                            <td class="px-2.5 py-1.5 font-mono font-bold text-ink" x-text="cCode"></td>
+                                                            <td class="px-2.5 py-1.5 font-mono text-ink-muted" x-text="`${res.criteria[cCode]?.raw_value} / ${res.criteria[cCode]?.clamped_value}`"></td>
+                                                            <td class="px-2.5 py-1.5 font-mono text-ink" x-text="res.criteria[cCode]?.formula"></td>
+                                                            <td class="px-2.5 py-1.5 font-mono text-right text-ink" x-text="Number(res.criteria[cCode]?.utility || 0).toFixed(2)"></td>
+                                                            <td class="px-2.5 py-1.5 font-mono text-right text-ink-muted" x-text="Number(res.criteria[cCode]?.normalized_weight || 0).toFixed(4)"></td>
+                                                            <td class="px-2.5 py-1.5 font-mono font-bold text-right text-ink" x-text="Number(res.criteria[cCode]?.weighted_score || 0).toFixed(2)"></td>
+                                                        </tr>
+                                                    </template>
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    </div>
+                                </template>
+                            </div>
+
+                            <div class="rounded-2xl border border-line bg-surface p-3.5 space-y-2">
+                                <div class="text-2xs font-bold uppercase tracking-wider text-ink-muted">
+                                    {{ __('leave.debug_raw_telemetry_title') }}
+                                </div>
+                                <pre class="max-h-56 overflow-auto rounded-xl border border-line bg-surface-muted p-3 text-2xs font-mono text-ink leading-relaxed"
+                                     x-text="JSON.stringify(debugResult.telemetry || debugResult, null, 2)"></pre>
+                            </div>
+                        </div>
+                    </template>
+                </div>
+            </x-ui.modal>
+        @endif
     </div>
 
     <script>
@@ -1415,7 +1679,7 @@
                 calculating: false,
                 calendarDays: 0,
                 excludedOffDays: 0,
-                effectiveDays: 0.0,
+                effectiveDays: 0,
                 cancelActionUrl: '',
                 rejectActionUrl: '',
                 loadingAnalysis: false,
@@ -1443,11 +1707,28 @@
                     calculating: false,
                     calendarDays: 0,
                     excludedOffDays: 0,
-                    effectiveDays: 0.0,
+                    effectiveDays: 0,
                 },
                 ledgerEmployees: config.ledgerEmployees || [],
                 selectedLedgerEmployeeId: String(config.defaultLedgerEmployeeId || ''),
                 ledgerData: null,
+                smartDebugUrl: config.smartDebugUrl || '',
+                csrfToken: config.csrfToken || '',
+                debugRequests: config.debugRequests || [],
+                debugForm: {
+                    weights: { C1: 30, C2: 20, C3: 15, C4: 15, C5: 20 },
+                    min_staff_per_shift: 2,
+                    total_department_staff: 5,
+                    leave_request_id: '',
+                    candidates: [
+                        { name: 'Kandidat A', C1: 85, C2: 30, C3: 98, C4: 1, C5: 0 },
+                        { name: 'Kandidat B', C1: 45, C2: 5, C3: 90, C4: 0, C5: 3 },
+                        { name: 'Kandidat C', C1: 65, C2: 120, C3: 75, C4: 4, C5: 1 },
+                    ],
+                },
+                debugLoading: false,
+                debugError: '',
+                debugResult: null,
 
                 get selectedType() {
                     return this.leaveTypes.find(t => String(t.id) === String(this.selectedTypeId)) || null;
@@ -1460,6 +1741,13 @@
                 get totalWeightSum() {
                     return ['C1', 'C2', 'C3', 'C4', 'C5'].reduce(
                         (acc, k) => acc + Math.round(Number(this.weightForm[k] || 0)),
+                        0
+                    );
+                },
+
+                get debugWeightSum() {
+                    return ['C1', 'C2', 'C3', 'C4', 'C5'].reduce(
+                        (acc, k) => acc + Math.round(Number(this.debugForm.weights[k] || 0)),
                         0
                     );
                 },
@@ -1736,6 +2024,88 @@
                         }
                     } catch (e) {
                         console.error('Failed to load leave ledger history:', e);
+                    }
+                },
+
+                applyDebugPreset(preset) {
+                    if (preset === 'mode_b') {
+                        this.debugForm.min_staff_per_shift = 2;
+                        this.debugForm.total_department_staff = 6;
+                        this.debugForm.candidates = [
+                            { name: 'Staf Mandiri', C1: 80, C2: 45, C3: 95, C4: 1, C5: 0 },
+                        ];
+                        return;
+                    }
+
+                    if (preset === 'critical_staff') {
+                        this.debugForm.min_staff_per_shift = 3;
+                        this.debugForm.total_department_staff = 4;
+                        this.debugForm.candidates = [
+                            { name: 'Kandidat #1 (Disiplin)', C1: 80, C2: 20, C3: 98, C4: 0, C5: 0 },
+                            { name: 'Kandidat #2 (Cadangan)', C1: 70, C2: 35, C3: 88, C4: 2, C5: 1 },
+                            { name: 'Kandidat #3 (Risiko Formasi)', C1: 50, C2: 90, C3: 75, C4: 5, C5: 3 },
+                        ];
+                        return;
+                    }
+
+                    this.debugForm.min_staff_per_shift = 2;
+                    this.debugForm.total_department_staff = 5;
+                    this.debugForm.candidates = [
+                        { name: 'Kandidat A', C1: 85, C2: 30, C3: 98, C4: 1, C5: 0 },
+                        { name: 'Kandidat B', C1: 45, C2: 5, C3: 90, C4: 0, C5: 3 },
+                        { name: 'Kandidat C', C1: 65, C2: 120, C3: 75, C4: 4, C5: 1 },
+                    ];
+                },
+
+                addDebugCandidate() {
+                    const num = (this.debugForm.candidates?.length || 0) + 1;
+                    this.debugForm.candidates.push({
+                        name: `Kandidat #${num}`,
+                        C1: 75,
+                        C2: 30,
+                        C3: 90,
+                        C4: 1,
+                        C5: 0,
+                    });
+                },
+
+                removeDebugCandidate(idx) {
+                    this.debugForm.candidates.splice(idx, 1);
+                },
+
+                async runSmartDebug() {
+                    this.debugError = '';
+                    this.debugLoading = true;
+                    try {
+                        const response = await fetch(this.smartDebugUrl, {
+                            method: 'POST',
+                            headers: {
+                                'Accept': 'application/json',
+                                'Content-Type': 'application/json',
+                                'X-CSRF-TOKEN': this.csrfToken,
+                                'X-Requested-With': 'XMLHttpRequest',
+                            },
+                            body: JSON.stringify({
+                                weights: this.debugForm.weights,
+                                min_staff_per_shift: Number(this.debugForm.min_staff_per_shift || 1),
+                                total_department_staff: Number(this.debugForm.total_department_staff || 1),
+                                leave_request_id: this.debugForm.leave_request_id || null,
+                                candidates: this.debugForm.candidates,
+                            }),
+                        });
+
+                        const json = await response.json();
+                        if (!response.ok) {
+                            const firstErr = json.errors ? Object.values(json.errors).flat()[0] : null;
+                            this.debugError = firstErr || json.message || 'Simulation error';
+                            return;
+                        }
+
+                        this.debugResult = json.data || json;
+                    } catch (e) {
+                        this.debugError = e?.message || 'Network error';
+                    } finally {
+                        this.debugLoading = false;
                     }
                 },
             }));

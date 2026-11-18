@@ -10,6 +10,7 @@ use App\Models\WorkSchedule;
 use App\Services\AttendanceGeofenceService;
 use App\Services\AttendancePhotoService;
 use App\Services\DpCommitService;
+use App\Services\WebPushService;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
@@ -28,7 +29,8 @@ class AttendanceController extends Controller
     public function __construct(
         private readonly AttendanceGeofenceService $geofenceService,
         private readonly AttendancePhotoService $photoService,
-        private readonly DpCommitService $dpCommitService
+        private readonly DpCommitService $dpCommitService,
+        private readonly ?WebPushService $webPushService = null
     ) {}
 
     /**
@@ -79,6 +81,7 @@ class AttendanceController extends Controller
                 'workSchedule' => fn ($wq) => $wq->withoutGlobalScopes()->with([
                     'shift' => fn ($sq) => $sq->withoutGlobalScopes(),
                 ]),
+                'verifier',
             ]);
 
         // Hierarchical RBAC Scoping
@@ -235,6 +238,15 @@ class AttendanceController extends Controller
             ], 422);
         }
 
+        $autoAssignEnabled = (bool) ($company->auto_assign_shift_on_clock_in ?? true);
+        $preResolvedSchedule = $this->geofenceService->resolveTodaySchedule($employee, $nowWib, false);
+        if (! $autoAssignEnabled && ($preResolvedSchedule === null || $preResolvedSchedule->isOff())) {
+            return response()->json([
+                'success' => false,
+                'message' => __('attendance.unscheduled_clock_in_disabled'),
+            ], 422);
+        }
+
         try {
             $clockInPhotoPath = $this->photoService->processAndStore(
                 $request->file('photo'),
@@ -251,7 +263,9 @@ class AttendanceController extends Controller
             ], 500);
         }
 
-        $schedule = $this->geofenceService->resolveTodaySchedule($employee, $nowWib, true);
+        $schedule = ($preResolvedSchedule !== null && ! $preResolvedSchedule->isOff())
+            ? $preResolvedSchedule
+            : $this->geofenceService->resolveTodaySchedule($employee, $nowWib, $autoAssignEnabled);
         $evaluation = $this->geofenceService->evaluateClockIn($schedule, $nowWib);
         $isProvisionalDp = PublicHoliday::isHoliday($nowWib, (int) $company->id);
 
@@ -353,6 +367,15 @@ class AttendanceController extends Controller
             ], 422);
         }
 
+        $autoAssignEnabled = (bool) ($company->auto_assign_shift_on_clock_in ?? true);
+        $preResolvedSchedule = $this->geofenceService->resolveTodaySchedule($employee, $nowWib, false);
+        if (! $autoAssignEnabled && ($preResolvedSchedule === null || $preResolvedSchedule->isOff())) {
+            return response()->json([
+                'success' => false,
+                'message' => __('attendance.unscheduled_clock_in_disabled'),
+            ], 422);
+        }
+
         $geofence = $this->geofenceService->validateGeofence(
             $company,
             (float) $validated['latitude'],
@@ -375,7 +398,9 @@ class AttendanceController extends Controller
             ], 500);
         }
 
-        $schedule = $this->geofenceService->resolveTodaySchedule($employee, $nowWib, true);
+        $schedule = ($preResolvedSchedule !== null && ! $preResolvedSchedule->isOff())
+            ? $preResolvedSchedule
+            : $this->geofenceService->resolveTodaySchedule($employee, $nowWib, $autoAssignEnabled);
         $evaluation = $this->geofenceService->evaluateClockIn($schedule, $nowWib);
         $isProvisionalDp = PublicHoliday::isHoliday($nowWib, (int) $company->id);
 
@@ -400,6 +425,32 @@ class AttendanceController extends Controller
             'ip_address' => $request->ip(),
             'notes' => $validated['notes'],
         ]);
+
+        try {
+            $push = $this->webPushService ?? app(WebPushService::class);
+            $recipients = $push->resolveDepartmentManagersOrCompanyAdmins(
+                (int) $company->id,
+                $employee->department_id,
+                $user->id
+            );
+            $push->notifyUsers(
+                $recipients,
+                'attendance_outside_pending',
+                __('pwa.notif_outside_pending_title'),
+                __('pwa.notif_outside_pending_body', [
+                    'name' => $user->name,
+                    'location' => $validated['outside_location_name'],
+                ]),
+                route('attendance.verifications.index', [], false),
+                [
+                    'attendance_id' => $attendance->id,
+                    'attendance_uuid' => $attendance->uuid,
+                    'employee_id' => $employee->id,
+                ]
+            );
+        } catch (Throwable $e) {
+            Log::warning('Failed to dispatch outside attendance notification: '.$e->getMessage());
+        }
 
         return response()->json([
             'success' => true,

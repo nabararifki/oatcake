@@ -259,9 +259,9 @@ class LeaveApprovalWorkflowTest extends TestCase
         $this->assertSame(0, $debitCount);
 
         $quota = $this->leaveRequestService->getQuotaSummary($this->staffEmployeeA, 'AL');
-        $this->assertSame(12.0, $quota['ledger_balance']);
-        $this->assertSame(3.0, $quota['reserved_days']);
-        $this->assertSame(9.0, $quota['available_balance']);
+        $this->assertSame(12, $quota['ledger_balance']);
+        $this->assertSame(3, $quota['reserved_days']);
+        $this->assertSame(9, $quota['available_balance']);
     }
 
     /**
@@ -370,19 +370,19 @@ class LeaveApprovalWorkflowTest extends TestCase
         $debitEntry = LeaveLedgerEntry::withoutGlobalScopes()->find($leaveRequest->ledger_entry_id);
         $this->assertNotNull($debitEntry);
         $this->assertSame(LeaveLedgerEntry::TYPE_DEBIT, $debitEntry->transaction_type);
-        $this->assertSame(-3.0, (float) $debitEntry->amount);
+        $this->assertSame(-3, (int) $debitEntry->amount);
         $this->assertSame('leave_request', $debitEntry->reference_type);
         $this->assertSame($leaveRequest->id, $debitEntry->reference_id);
 
-        // Verify accrual bucket remaining_amount decreased from 12.00 to 9.00
+        // Verify accrual bucket remaining_amount decreased from 12 to 9
         $accrualEntry->refresh();
-        $this->assertSame(9.0, (float) $accrualEntry->remaining_amount);
+        $this->assertSame(9, (int) $accrualEntry->remaining_amount);
 
-        // Verify quota summary: ledger 9.0, reserved 0.0, available 9.0
+        // Verify quota summary: ledger 9, reserved 0, available 9
         $quota = $this->leaveRequestService->getQuotaSummary($this->staffEmployeeA, 'AL');
-        $this->assertSame(9.0, $quota['ledger_balance']);
-        $this->assertSame(0.0, $quota['reserved_days']);
-        $this->assertSame(9.0, $quota['available_balance']);
+        $this->assertSame(9, $quota['ledger_balance']);
+        $this->assertSame(0, $quota['reserved_days']);
+        $this->assertSame(9, $quota['available_balance']);
     }
 
     /**
@@ -393,7 +393,7 @@ class LeaveApprovalWorkflowTest extends TestCase
      */
     public function test_scenario_4_rejection_validation_and_reserved_quota_release(): void
     {
-        $this->ledgerService->recordAccrual($this->staffEmployeeA, 'AL', 12.00, ['accrual_year' => 2026]);
+        $this->ledgerService->recordAccrual($this->staffEmployeeA, 'AL', 12, ['accrual_year' => 2026]);
         $alType = LeaveType::withoutGlobalScopes()->where('code', 'AL')->firstOrFail();
 
         $leaveRequest = $this->leaveRequestService->submitRequest($this->staffEmployeeA, [
@@ -403,11 +403,11 @@ class LeaveApprovalWorkflowTest extends TestCase
             'reason' => 'Cuti liburan akhir tahun',
         ]);
 
-        // Before rejection: ledger 12.0, reserved 2.0, available 10.0
+        // Before rejection: ledger 12, reserved 2, available 10
         $quotaBefore = $this->leaveRequestService->getQuotaSummary($this->staffEmployeeA, 'AL');
-        $this->assertSame(12.0, $quotaBefore['ledger_balance']);
-        $this->assertSame(2.0, $quotaBefore['reserved_days']);
-        $this->assertSame(10.0, $quotaBefore['available_balance']);
+        $this->assertSame(12, $quotaBefore['ledger_balance']);
+        $this->assertSame(2, $quotaBefore['reserved_days']);
+        $this->assertSame(10, $quotaBefore['available_balance']);
 
         // 1. Rejection without reason -> 422
         $this->actingAs($this->foManagerUser)
@@ -442,11 +442,11 @@ class LeaveApprovalWorkflowTest extends TestCase
         $this->assertNotNull($rejectionLog);
         $this->assertSame(LeaveRequestApproval::TIER_MANAGER, $rejectionLog->tier);
 
-        // Verify available_balance restored to 12.0 and reserved_days back to 0.0
+        // Verify available_balance restored to 12 and reserved_days back to 0
         $quotaAfter = $this->leaveRequestService->getQuotaSummary($this->staffEmployeeA, 'AL');
-        $this->assertSame(12.0, $quotaAfter['ledger_balance']);
-        $this->assertSame(0.0, $quotaAfter['reserved_days']);
-        $this->assertSame(12.0, $quotaAfter['available_balance']);
+        $this->assertSame(12, $quotaAfter['ledger_balance']);
+        $this->assertSame(0, $quotaAfter['reserved_days']);
+        $this->assertSame(12, $quotaAfter['available_balance']);
     }
 
     /**
@@ -625,7 +625,7 @@ class LeaveApprovalWorkflowTest extends TestCase
         ])->assertOk()->assertJsonPath('status', 'ok');
 
         $dpSummary = $this->leaveRequestService->getQuotaSummary($this->staffEmployeeA, 'DP');
-        $this->assertSame(2.0, $dpSummary['ledger_balance']);
+        $this->assertSame(2, $dpSummary['ledger_balance']);
 
         // 2. Negative manual integer adjustment (-1 AL) by Admin
         $this->actingAs($this->adminUser)->postJson(route('leave.ledger.adjust'), [
@@ -637,7 +637,7 @@ class LeaveApprovalWorkflowTest extends TestCase
         ])->assertOk()->assertJsonPath('status', 'ok');
 
         $alSummary = $this->leaveRequestService->getQuotaSummary($this->staffEmployeeA, 'AL');
-        $this->assertSame(11.0, $alSummary['ledger_balance']);
+        $this->assertSame(11, $alSummary['ledger_balance']);
 
         $adjustmentCount = LeaveLedgerEntry::withoutGlobalScopes()
             ->where('employee_id', $this->staffEmployeeA->id)
@@ -766,7 +766,7 @@ class LeaveApprovalWorkflowTest extends TestCase
         $leaveRequest->refresh();
         $originalDebitEntryId = $leaveRequest->ledger_entry_id;
         $this->assertNotNull($originalDebitEntryId);
-        $this->assertSame(9.0, $this->ledgerService->getBalance($this->staffEmployeeA, 'AL'));
+        $this->assertSame(9, $this->ledgerService->getBalance($this->staffEmployeeA, 'AL'));
 
         $lockedCountBefore = WorkSchedule::withoutGlobalScopes()
             ->where('employee_id', $this->staffEmployeeA->id)
@@ -787,13 +787,13 @@ class LeaveApprovalWorkflowTest extends TestCase
         $this->assertSame(LeaveRequest::STATUS_CANCELLED, $leaveRequest->status);
         $this->assertNull($leaveRequest->ledger_entry_id);
 
-        // Historical debit row (-3.00) is preserved untouched (append-only invariant)
+        // Historical debit row (-3) is preserved untouched (append-only invariant)
         $historicalDebit = LeaveLedgerEntry::withoutGlobalScopes()->find($originalDebitEntryId);
         $this->assertNotNull($historicalDebit);
         $this->assertSame(LeaveLedgerEntry::TYPE_DEBIT, $historicalDebit->transaction_type);
-        $this->assertSame(-3.0, (float) $historicalDebit->amount);
+        $this->assertSame(-3, (int) $historicalDebit->amount);
 
-        // A new positive credit refund entry (+3.00) was appended, restoring active balance to 12.00
+        // A new positive credit refund entry (+3) was appended, restoring active balance to 12
         $refundEntry = LeaveLedgerEntry::withoutGlobalScopes()
             ->where('employee_id', $this->staffEmployeeA->id)
             ->where('reference_type', 'leave_cancellation')
@@ -801,12 +801,12 @@ class LeaveApprovalWorkflowTest extends TestCase
             ->first();
         $this->assertNotNull($refundEntry);
         $this->assertSame(LeaveLedgerEntry::TYPE_CREDIT, $refundEntry->transaction_type);
-        $this->assertSame(3.0, (float) $refundEntry->amount);
-        $this->assertSame(3.0, (float) $refundEntry->remaining_amount);
-        $this->assertSame(12.0, (float) $refundEntry->balance_after);
+        $this->assertSame(3, (int) $refundEntry->amount);
+        $this->assertSame(3, (int) $refundEntry->remaining_amount);
+        $this->assertSame(12, (int) $refundEntry->balance_after);
         $this->assertSame($originalDebitEntryId, $refundEntry->source_entry_id);
 
-        $this->assertSame(12.0, $this->ledgerService->getBalance($this->staffEmployeeA, 'AL'));
+        $this->assertSame(12, $this->ledgerService->getBalance($this->staffEmployeeA, 'AL'));
 
         // Locked LEAVE: schedules on Roster have been released, so Manager can assign a work shift on 2026-12-16
         $lockedCountAfter = WorkSchedule::withoutGlobalScopes()
@@ -873,7 +873,7 @@ class LeaveApprovalWorkflowTest extends TestCase
 
         $leaveRequest->refresh();
         $this->assertSame(LeaveRequest::STATUS_APPROVED, $leaveRequest->status);
-        $this->assertSame(9.0, $this->ledgerService->getBalance($this->staffEmployeeA, 'AL'));
+        $this->assertSame(9, $this->ledgerService->getBalance($this->staffEmployeeA, 'AL'));
 
         // Staff edits the approved 3-day leave request to a 2-day range (2026-12-08 to 2026-12-09)
         $this->actingAs($this->staffUserA)
@@ -889,16 +889,16 @@ class LeaveApprovalWorkflowTest extends TestCase
 
         $leaveRequest->refresh();
         $this->assertSame(LeaveRequest::STATUS_PENDING_MANAGER, $leaveRequest->status);
-        $this->assertSame(2.0, (float) $leaveRequest->total_days);
+        $this->assertSame(2, (int) $leaveRequest->total_days);
         $this->assertNull($leaveRequest->ledger_entry_id);
         $this->assertNull($leaveRequest->manager_approved_by);
         $this->assertNull($leaveRequest->hr_approved_by);
 
-        // Verify old 3-day debit was refunded to ledger (ledger balance back to 12.0, reserved = 2.0, available = 10.0)
+        // Verify old 3-day debit was refunded to ledger (ledger balance back to 12, reserved = 2, available = 10)
         $quotaSummary = $this->leaveRequestService->getQuotaSummary($this->staffEmployeeA, 'AL');
-        $this->assertSame(12.0, $quotaSummary['ledger_balance']);
-        $this->assertSame(2.0, $quotaSummary['reserved_days']);
-        $this->assertSame(10.0, $quotaSummary['available_balance']);
+        $this->assertSame(12, $quotaSummary['ledger_balance']);
+        $this->assertSame(2, $quotaSummary['reserved_days']);
+        $this->assertSame(10, $quotaSummary['available_balance']);
 
         // Verify old Roster lock on 2026-12-02..2026-12-04 was released
         $oldRosterLocks = WorkSchedule::withoutGlobalScopes()

@@ -12,14 +12,17 @@ use Carbon\Carbon;
 use Carbon\CarbonInterface;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\ValidationException;
+use Throwable;
 
 class LeaveRequestService
 {
     public function __construct(
         private readonly LeaveLedgerService $ledgerService,
         private readonly LeaveAttachmentService $attachmentService,
-        private readonly SmartDecisionService $smartDecisionService
+        private readonly SmartDecisionService $smartDecisionService,
+        private readonly ?WebPushService $webPushService = null
     ) {}
 
     /**
@@ -29,7 +32,7 @@ class LeaveRequestService
      * @return array{
      *     calendar_days: int,
      *     excluded_off_days: int,
-     *     effective_days: float,
+     *     effective_days: int,
      *     excluded_dates: list<string>
      * }
      */
@@ -45,7 +48,7 @@ class LeaveRequestService
             return [
                 'calendar_days' => 0,
                 'excluded_off_days' => 0,
-                'effective_days' => 0.0,
+                'effective_days' => 0,
                 'excluded_dates' => [],
             ];
         }
@@ -65,7 +68,7 @@ class LeaveRequestService
 
         $calendarDays = 0;
         $excludedOffDays = 0;
-        $effectiveDays = 0.0;
+        $effectiveDays = 0;
         $excludedDates = [];
 
         $cursor = $start->copy();
@@ -90,7 +93,7 @@ class LeaveRequestService
                 $excludedOffDays++;
                 $excludedDates[] = $dateStr;
             } else {
-                $effectiveDays += 1.0;
+                $effectiveDays += 1;
             }
 
             $cursor->addDay();
@@ -99,7 +102,7 @@ class LeaveRequestService
         return [
             'calendar_days' => $calendarDays,
             'excluded_off_days' => $excludedOffDays,
-            'effective_days' => round($effectiveDays, 2),
+            'effective_days' => (int) $effectiveDays,
             'excluded_dates' => $excludedDates,
         ];
     }
@@ -108,9 +111,9 @@ class LeaveRequestService
      * Get the real-time quota summary (ledger balance, pending reserved days, and available balance).
      *
      * @return array{
-     *     ledger_balance: float,
-     *     reserved_days: float,
-     *     available_balance: float
+     *     ledger_balance: int,
+     *     reserved_days: int,
+     *     available_balance: int
      * }
      */
     public function getQuotaSummary(
@@ -120,7 +123,7 @@ class LeaveRequestService
     ): array {
         $type = $this->ledgerService->resolveLeaveType($leaveType, (int) $employee->company_id);
 
-        $ledgerBalance = round($this->ledgerService->getBalance($employee, $type), 2);
+        $ledgerBalance = (int) $this->ledgerService->getBalance($employee, $type);
 
         $reservedQuery = LeaveRequest::withoutGlobalScopes()
             ->where('company_id', $employee->company_id)
@@ -135,14 +138,14 @@ class LeaveRequestService
             $reservedQuery->where('id', '!=', $excludeRequestId);
         }
 
-        $reservedDays = round((float) $reservedQuery->sum('total_days'), 2);
+        $reservedDays = (int) round((float) $reservedQuery->sum('total_days'));
 
-        $availableBalance = max(0.0, round($ledgerBalance - $reservedDays, 2));
+        $availableBalance = max(0, (int) ($ledgerBalance - $reservedDays));
 
         return [
-            'ledger_balance' => $ledgerBalance,
-            'reserved_days' => $reservedDays,
-            'available_balance' => $availableBalance,
+            'ledger_balance' => (int) $ledgerBalance,
+            'reserved_days' => (int) $reservedDays,
+            'available_balance' => (int) $availableBalance,
         ];
     }
 
@@ -185,7 +188,7 @@ class LeaveRequestService
             ]);
         }
 
-        return DB::transaction(function () use (
+        $leaveRequest = DB::transaction(function () use (
             $employee,
             $leaveType,
             $startDateStr,
@@ -201,7 +204,7 @@ class LeaveRequestService
 
             // 1. Calculate effective days based on published roster
             $calculation = $this->calculateEffectiveDays($lockedEmployee, $startDateStr, $endDateStr);
-            $effectiveDays = (float) $calculation['effective_days'];
+            $effectiveDays = (int) $calculation['effective_days'];
 
             if ($effectiveDays <= 0) {
                 throw ValidationException::withMessages([
@@ -236,8 +239,8 @@ class LeaveRequestService
                     throw ValidationException::withMessages([
                         'leave_type_id' => [__('leave.err_insufficient_quota', [
                             'type' => $leaveType->code,
-                            'available' => number_format($quotaSummary['available_balance'], 2),
-                            'requested' => number_format($effectiveDays, 2),
+                            'available' => (string) (int) $quotaSummary['available_balance'],
+                            'requested' => (string) (int) $effectiveDays,
                         ])],
                     ]);
                 }
@@ -279,6 +282,10 @@ class LeaveRequestService
 
             return $leaveRequest->refresh();
         });
+
+        $this->dispatchLeaveSubmittedNotification($leaveRequest, $employee, $leaveType, $actor);
+
+        return $leaveRequest;
     }
 
     /**
@@ -339,7 +346,7 @@ class LeaveRequestService
                     $this->ledgerService->recordCancellationRefund(
                         $lockedEmployee,
                         $leaveType,
-                        (float) $lockedRequest->total_days,
+                        (int) $lockedRequest->total_days,
                         $lockedRequest,
                         $actor,
                         $refundNotes
@@ -410,7 +417,7 @@ class LeaveRequestService
             ]);
         }
 
-        return DB::transaction(function () use (
+        $updatedRequest = DB::transaction(function () use (
             $leaveRequest,
             $newLeaveType,
             $newStartDateStr,
@@ -451,7 +458,7 @@ class LeaveRequestService
                     $this->ledgerService->recordCancellationRefund(
                         $lockedEmployee,
                         $oldLeaveType,
-                        (float) $lockedRequest->total_days,
+                        (int) $lockedRequest->total_days,
                         $lockedRequest,
                         $actor,
                         "Refund perubahan (edit) pengajuan cuti #{$lockedRequest->id}"
@@ -464,7 +471,7 @@ class LeaveRequestService
 
             // 2. Calculate effective days for the new date range
             $calculation = $this->calculateEffectiveDays($lockedEmployee, $newStartDateStr, $newEndDateStr);
-            $effectiveDays = (float) $calculation['effective_days'];
+            $effectiveDays = (int) $calculation['effective_days'];
 
             if ($effectiveDays <= 0) {
                 throw ValidationException::withMessages([
@@ -500,8 +507,8 @@ class LeaveRequestService
                     throw ValidationException::withMessages([
                         'leave_type_id' => [__('leave.err_insufficient_quota', [
                             'type' => $newLeaveType->code,
-                            'available' => number_format($quotaSummary['available_balance'], 2),
-                            'requested' => number_format($effectiveDays, 2),
+                            'available' => (string) (int) $quotaSummary['available_balance'],
+                            'requested' => (string) (int) $effectiveDays,
                         ])],
                     ]);
                 }
@@ -554,6 +561,90 @@ class LeaveRequestService
 
             return $lockedRequest->refresh();
         });
+
+        $employeeModel = Employee::withoutGlobalScopes()->with('user')->find($updatedRequest->employee_id);
+        if ($employeeModel !== null) {
+            $this->dispatchLeaveSubmittedNotification($updatedRequest, $employeeModel, $newLeaveType, $actor);
+        }
+
+        return $updatedRequest;
+    }
+
+    /**
+     * Dispatch real-time Web Push & in-app notification to department managers or HR admins on leave submission/update.
+     */
+    private function dispatchLeaveSubmittedNotification(
+        LeaveRequest $leaveRequest,
+        Employee $employee,
+        LeaveType $leaveType,
+        ?User $actor = null
+    ): void {
+        try {
+            $push = $this->webPushService ?? app(WebPushService::class);
+            $applicantUser = $actor
+                ?? ($employee->relationLoaded('user') ? $employee->user : null)
+                ?? ($employee->user_id ? User::find($employee->user_id) : null);
+
+            $applicantName = $applicantUser?->name ?? 'Staf';
+            $startStr = $leaveRequest->start_date instanceof CarbonInterface
+                ? $leaveRequest->start_date->toDateString()
+                : Carbon::parse($leaveRequest->start_date, 'Asia/Jakarta')->toDateString();
+            $endStr = $leaveRequest->end_date instanceof CarbonInterface
+                ? $leaveRequest->end_date->toDateString()
+                : Carbon::parse($leaveRequest->end_date, 'Asia/Jakarta')->toDateString();
+            $daysStr = (string) (int) $leaveRequest->total_days;
+            $actionUrl = route('leave.index', [], false);
+            $meta = [
+                'leave_request_id' => $leaveRequest->id,
+                'leave_request_uuid' => $leaveRequest->uuid,
+                'employee_id' => $employee->id,
+            ];
+
+            if ($leaveRequest->status === LeaveRequest::STATUS_PENDING_MANAGER) {
+                $recipients = $push->resolveDepartmentManagersOrCompanyAdmins(
+                    (int) $employee->company_id,
+                    $employee->department_id,
+                    $applicantUser?->id
+                );
+
+                $push->notifyUsers(
+                    $recipients,
+                    'leave_submitted',
+                    __('pwa.notif_leave_submitted_title'),
+                    __('pwa.notif_leave_submitted_body', [
+                        'name' => $applicantName,
+                        'type' => $leaveType->code,
+                        'start' => $startStr,
+                        'end' => $endStr,
+                        'days' => $daysStr,
+                    ]),
+                    $actionUrl,
+                    $meta
+                );
+            } elseif ($leaveRequest->status === LeaveRequest::STATUS_PENDING_HR) {
+                $recipients = $push->resolveCompanyAdmins(
+                    (int) $employee->company_id,
+                    $applicantUser?->id
+                );
+
+                $push->notifyUsers(
+                    $recipients,
+                    'leave_submitted',
+                    __('pwa.notif_leave_submitted_hr_title'),
+                    __('pwa.notif_leave_submitted_hr_body', [
+                        'name' => $applicantName,
+                        'type' => $leaveType->code,
+                        'start' => $startStr,
+                        'end' => $endStr,
+                        'days' => $daysStr,
+                    ]),
+                    $actionUrl,
+                    $meta
+                );
+            }
+        } catch (Throwable $e) {
+            Log::warning('Failed to dispatch leave submission notification: '.$e->getMessage());
+        }
     }
 
     /**

@@ -77,45 +77,45 @@ class LeaveLedgerTest extends TestCase
     {
         Carbon::setTestNow(Carbon::create(2026, 1, 10, 8, 0, 0, 'Asia/Jakarta'));
 
-        $this->assertSame(0.0, $this->ledgerService->getBalance($this->employee, 'AL'));
-        $this->assertSame(0.0, $this->ledgerService->getBalance($this->employee, 'DP'));
+        $this->assertSame(0, $this->ledgerService->getBalance($this->employee, 'AL'));
+        $this->assertSame(0, $this->ledgerService->getBalance($this->employee, 'DP'));
 
-        // 1. Akrual Cuti Tahunan (AL) +12.00 hari
-        $accrualEntry = $this->ledgerService->recordAccrual($this->employee, 'AL', 12.00, [
+        // 1. Akrual Cuti Tahunan (AL) +12 hari (Integer)
+        $accrualEntry = $this->ledgerService->recordAccrual($this->employee, 'AL', 12, [
             'accrual_year' => 2026,
             'expires_at' => '2026-12-31',
             'notes' => 'Akrual cuti tahunan 2026',
         ]);
 
         $this->assertSame(LeaveLedgerEntry::TYPE_ACCRUAL, $accrualEntry->transaction_type);
-        $this->assertSame('12.00', $accrualEntry->amount);
-        $this->assertSame('12.00', $accrualEntry->remaining_amount);
-        $this->assertSame('12.00', $accrualEntry->balance_after);
+        $this->assertSame(12, $accrualEntry->amount);
+        $this->assertSame(12, $accrualEntry->remaining_amount);
+        $this->assertSame(12, $accrualEntry->balance_after);
         $this->assertSame('2026-12-31', $accrualEntry->expires_at?->toDateString());
-        $this->assertSame(12.0, $this->ledgerService->getBalance($this->employee, 'AL'));
+        $this->assertSame(12, $this->ledgerService->getBalance($this->employee, 'AL'));
 
-        // 2. Kredit DP pertama (+1.00 hari) dengan validity_months default (3 bulan -> 2026-04-10)
-        $dpCredit1 = $this->ledgerService->recordCredit($this->employee, 'DP', 1.00, [
+        // 2. Kredit DP pertama (+1 hari) dengan validity_months default (3 bulan -> 2026-04-10)
+        $dpCredit1 = $this->ledgerService->recordCredit($this->employee, 'DP', 1, [
             'reference_type' => 'attendance',
             'reference_id' => 101,
         ]);
 
         $this->assertSame(LeaveLedgerEntry::TYPE_CREDIT, $dpCredit1->transaction_type);
-        $this->assertSame('1.00', $dpCredit1->amount);
-        $this->assertSame('1.00', $dpCredit1->remaining_amount);
-        $this->assertSame('1.00', $dpCredit1->balance_after);
+        $this->assertSame(1, $dpCredit1->amount);
+        $this->assertSame(1, $dpCredit1->remaining_amount);
+        $this->assertSame(1, $dpCredit1->balance_after);
         $this->assertSame('2026-04-10', $dpCredit1->expires_at?->toDateString());
 
-        // 3. Kredit DP kedua (+2.00 hari)
-        $dpCredit2 = $this->ledgerService->recordCredit($this->employee, 'DP', 2.00, [
+        // 3. Kredit DP kedua (+2 hari)
+        $dpCredit2 = $this->ledgerService->recordCredit($this->employee, 'DP', 2, [
             'reference_type' => 'manual_grant',
             'expires_at' => '2026-05-15',
         ]);
 
-        $this->assertSame('2.00', $dpCredit2->amount);
-        $this->assertSame('2.00', $dpCredit2->remaining_amount);
-        $this->assertSame('3.00', $dpCredit2->balance_after);
-        $this->assertSame(3.0, $this->ledgerService->getBalance($this->employee, 'DP'));
+        $this->assertSame(2, $dpCredit2->amount);
+        $this->assertSame(2, $dpCredit2->remaining_amount);
+        $this->assertSame(3, $dpCredit2->balance_after);
+        $this->assertSame(3, $this->ledgerService->getBalance($this->employee, 'DP'));
     }
 
     /**
@@ -127,47 +127,47 @@ class LeaveLedgerTest extends TestCase
         Carbon::setTestNow(Carbon::create(2026, 6, 1, 9, 0, 0, 'Asia/Jakarta'));
 
         // Buat 3 bucket kredit DP dengan urutan tanggal kedaluwarsa berbeda:
-        // Bucket 1: 2.00 hari, kedaluwarsa lebih lambat (2026-09-30)
-        $bucketLater = $this->ledgerService->recordCredit($this->employee, 'DP', 2.00, [
+        // Bucket 1: 3 hari, kedaluwarsa lebih lambat (2026-09-30)
+        $bucketLater = $this->ledgerService->recordCredit($this->employee, 'DP', 3, [
             'expires_at' => '2026-09-30',
         ]);
 
-        // Bucket 2: 1.00 hari, kedaluwarsa paling dekat (2026-07-15) -> harus dikuras pertama kali!
-        $bucketSooner = $this->ledgerService->recordCredit($this->employee, 'DP', 1.00, [
+        // Bucket 2: 2 hari, kedaluwarsa paling dekat (2026-07-15) -> harus dikuras pertama kali!
+        $bucketSooner = $this->ledgerService->recordCredit($this->employee, 'DP', 2, [
             'expires_at' => '2026-07-15',
         ]);
 
-        // Bucket 3: 1.00 hari, tanpa batas kedaluwarsa (NULLS LAST) -> harus dikuras paling akhir!
-        $bucketNoExpiry = $this->ledgerService->recordCredit($this->employee, 'DP', 1.00, [
+        // Bucket 3: 1 hari, tanpa batas kedaluwarsa (NULLS LAST) -> harus dikuras paling akhir!
+        $bucketNoExpiry = $this->ledgerService->recordCredit($this->employee, 'DP', 1, [
             'expires_at' => null,
         ]);
 
-        $this->assertSame(4.0, $this->ledgerService->getBalance($this->employee, 'DP'));
+        $this->assertSame(6, $this->ledgerService->getBalance($this->employee, 'DP'));
 
-        // Debit 2.50 hari:
-        // - Bucket 2 (2026-07-15, 1.00) habis -> remaining_amount = 0.00
-        // - Bucket 1 (2026-09-30, 2.00) terpakai 1.50 -> remaining_amount = 0.50
-        // - Bucket 3 (null, 1.00) utuh -> remaining_amount = 1.00
-        $debitEntry = $this->ledgerService->recordDebit($this->employee, 'DP', 2.50, [
+        // Debit 4 hari (integer):
+        // - Bucket 2 (2026-07-15, 2) habis -> remaining_amount = 0
+        // - Bucket 1 (2026-09-30, 3) terpakai 2 -> remaining_amount = 1
+        // - Bucket 3 (null, 1) utuh -> remaining_amount = 1
+        $debitEntry = $this->ledgerService->recordDebit($this->employee, 'DP', 4, [
             'reference_type' => 'leave_request',
             'reference_id' => 501,
-            'notes' => 'Pengambilan DP 2.5 hari',
+            'notes' => 'Pengambilan DP 4 hari',
         ]);
 
         $this->assertSame(LeaveLedgerEntry::TYPE_DEBIT, $debitEntry->transaction_type);
-        $this->assertSame('-2.50', $debitEntry->amount);
-        $this->assertSame('0.00', $debitEntry->remaining_amount);
-        $this->assertSame('1.50', $debitEntry->balance_after);
+        $this->assertSame(-4, $debitEntry->amount);
+        $this->assertSame(0, $debitEntry->remaining_amount);
+        $this->assertSame(2, $debitEntry->balance_after);
         $this->assertSame($bucketSooner->id, $debitEntry->source_entry_id);
 
-        $this->assertSame('0.00', $bucketSooner->fresh()->remaining_amount);
-        $this->assertSame('0.50', $bucketLater->fresh()->remaining_amount);
-        $this->assertSame('1.00', $bucketNoExpiry->fresh()->remaining_amount);
-        $this->assertSame(1.5, $this->ledgerService->getBalance($this->employee, 'DP'));
+        $this->assertSame(0, $bucketSooner->fresh()->remaining_amount);
+        $this->assertSame(1, $bucketLater->fresh()->remaining_amount);
+        $this->assertSame(1, $bucketNoExpiry->fresh()->remaining_amount);
+        $this->assertSame(2, $this->ledgerService->getBalance($this->employee, 'DP'));
 
-        // Coba debit 2.00 hari ketika sisa saldo hanya 1.50 -> wajib gagal dengan RuntimeException
+        // Coba debit 3 hari ketika sisa saldo hanya 2 -> wajib gagal dengan RuntimeException
         $this->expectException(RuntimeException::class);
-        $this->ledgerService->recordDebit($this->employee, 'DP', 2.00);
+        $this->ledgerService->recordDebit($this->employee, 'DP', 3);
     }
 
     /**
@@ -176,7 +176,7 @@ class LeaveLedgerTest extends TestCase
      */
     public function test_scenario_3_strict_immutability_guard_blocks_deletion_and_core_column_tampering(): void
     {
-        $entry = $this->ledgerService->recordAccrual($this->employee, 'AL', 12.00, [
+        $entry = $this->ledgerService->recordAccrual($this->employee, 'AL', 12, [
             'accrual_year' => 2026,
             'expires_at' => '2026-12-31',
         ]);
@@ -192,20 +192,20 @@ class LeaveLedgerTest extends TestCase
         // Pastikan baris masih ada di database
         $this->assertDatabaseHas('leave_ledger_entries', [
             'id' => $entry->id,
-            'amount' => 12.00,
-            'balance_after' => 12.00,
+            'amount' => 12,
+            'balance_after' => 12,
         ]);
 
         // 2. Percobaan mengubah kolom finansial amount atau balance_after wajib melempar LogicException
         try {
-            $entry->fresh()->update(['amount' => 99.00]);
+            $entry->fresh()->update(['amount' => 99]);
             $this->fail('Expected LogicException when modifying amount on LeaveLedgerEntry.');
         } catch (LogicException $e) {
             $this->assertStringContainsString('immutable', strtolower($e->getMessage()));
         }
 
         try {
-            $entry->fresh()->update(['balance_after' => 50.00]);
+            $entry->fresh()->update(['balance_after' => 50]);
             $this->fail('Expected LogicException when modifying balance_after on LeaveLedgerEntry.');
         } catch (LogicException $e) {
             $this->assertStringContainsString('immutable', strtolower($e->getMessage()));
@@ -213,8 +213,8 @@ class LeaveLedgerTest extends TestCase
 
         // Pastikan nilai asli tetap utuh
         $fresh = $entry->fresh();
-        $this->assertSame('12.00', $fresh->amount);
-        $this->assertSame('12.00', $fresh->balance_after);
+        $this->assertSame(12, $fresh->amount);
+        $this->assertSame(12, $fresh->balance_after);
     }
 
     /**
@@ -264,9 +264,9 @@ class LeaveLedgerTest extends TestCase
         $this->artisan('leave:accrue-annual', ['--year' => 2026])
             ->assertExitCode(0);
 
-        $this->assertSame(12.0, $this->ledgerService->getBalance($this->employee, 'AL'));
-        $this->assertSame(12.0, $this->ledgerService->getBalance($secondEmployee, 'AL'));
-        $this->assertSame(0.0, $this->ledgerService->getBalance($resignedEmployee, 'AL'));
+        $this->assertSame(12, $this->ledgerService->getBalance($this->employee, 'AL'));
+        $this->assertSame(12, $this->ledgerService->getBalance($secondEmployee, 'AL'));
+        $this->assertSame(0, $this->ledgerService->getBalance($resignedEmployee, 'AL'));
 
         $emp1Entry = LeaveLedgerEntry::withoutGlobalScopes()
             ->where('employee_id', $this->employee->id)
@@ -286,8 +286,8 @@ class LeaveLedgerTest extends TestCase
         $this->artisan('leave:accrue-annual', ['--year' => 2026])
             ->assertExitCode(0);
 
-        $this->assertSame(12.0, $this->ledgerService->getBalance($this->employee, 'AL'));
-        $this->assertSame(12.0, $this->ledgerService->getBalance($secondEmployee, 'AL'));
+        $this->assertSame(12, $this->ledgerService->getBalance($this->employee, 'AL'));
+        $this->assertSame(12, $this->ledgerService->getBalance($secondEmployee, 'AL'));
 
         $this->assertSame(
             1,

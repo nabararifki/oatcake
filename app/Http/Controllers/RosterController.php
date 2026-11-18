@@ -11,17 +11,25 @@ use App\Models\Shift;
 use App\Models\Tag;
 use App\Models\User;
 use App\Models\WorkSchedule;
+use App\Services\AuditTrailService;
+use App\Services\WebPushService;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 use Illuminate\View\View;
+use Throwable;
 
 class RosterController extends Controller
 {
+    public function __construct(
+        private readonly ?WebPushService $webPushService = null,
+        private readonly ?AuditTrailService $auditTrailService = null
+    ) {}
     /**
      * Resolve the active tenant company for the current request actor.
      */
@@ -223,7 +231,13 @@ class RosterController extends Controller
             abort(403);
         }
 
-        $actor->loadMissing(['company', 'employee.department', 'employee.tags']);
+        $actor->loadMissing([
+            'company',
+            'employee' => fn ($q) => $q->withoutGlobalScopes()->with([
+                'department' => fn ($dq) => $dq->withoutGlobalScopes(),
+                'tags' => fn ($tq) => $tq->withoutGlobalScopes(),
+            ]),
+        ]);
         $company = $this->resolveCompany($actor);
 
         if (! $company) {
@@ -231,7 +245,7 @@ class RosterController extends Controller
         }
 
         $hasViewAllTag = $actor->employee !== null
-            && $actor->employee->tags()->withoutGlobalScopes()->where('code', 'VIEW_ALL_SCHEDULES')->exists();
+            && $actor->employee->tags->contains('code', 'VIEW_ALL_SCHEDULES');
         $canViewAllDepartments = $actor->isSuperAdmin()
             || $actor->isSuperUser()
             || $actor->isAdmin()
@@ -255,6 +269,7 @@ class RosterController extends Controller
             ->where('company_id', $company->id)
             ->orderBy('code')
             ->get();
+        $departmentsById = $departments->keyBy('id');
 
         $selectedDepartmentId = null;
         if (! $canViewAllDepartments) {
@@ -276,34 +291,48 @@ class RosterController extends Controller
             ->when($modOnly, fn ($q) => $q->whereHas('tags', fn ($t) => $t->where('code', 'MOD_ELIGIBLE')))
             ->with([
                 'user',
-                'department',
                 'tags' => fn ($tq) => $tq->withoutGlobalScopes(),
                 'workSchedules' => fn ($sq) => $sq->withoutGlobalScopes()
                     ->where('company_id', $company->id)
                     ->betweenDates($prevMonthLastDay, $endOfMonth)
                     ->when($actor->isUser(), fn ($q) => $q->published())
                     ->orderBy('schedule_date')
-                    ->orderBy('id')
-                    ->with([
-                        'shift' => fn ($shq) => $shq->withoutGlobalScopes(),
-                        'dutyTag' => fn ($dtq) => $dtq->withoutGlobalScopes(),
-                    ]),
+                    ->orderBy('id'),
             ])
             ->orderBy('department_id')
             ->orderBy('id');
 
         $employees = $employeesQuery->get();
 
-        $shifts = Shift::withoutGlobalScopes()
+        $allShifts = Shift::withoutGlobalScopes()
             ->where('company_id', $company->id)
-            ->active()
             ->orderBy('id')
             ->get();
+        $shifts = $allShifts->where('is_active', true)->values();
+        $shiftsById = $allShifts->keyBy('id');
 
-        $modTag = Tag::withoutGlobalScopes()
+        $companyTags = Tag::withoutGlobalScopes()
             ->where('company_id', $company->id)
-            ->where('code', 'MOD_ELIGIBLE')
-            ->first();
+            ->get();
+        $modTag = $companyTags->firstWhere('code', 'MOD_ELIGIBLE');
+        $tagsById = $companyTags->keyBy('id');
+
+        $approvedLeaves = LeaveRequest::withoutGlobalScopes()
+            ->where('company_id', $company->id)
+            ->where('status', LeaveRequest::STATUS_APPROVED)
+            ->whereDate('start_date', '<=', $endOfMonth->toDateString())
+            ->whereDate('end_date', '>=', $startOfMonth->toDateString())
+            ->get(['id', 'employee_id', 'start_date', 'end_date']);
+
+        $approvedLeaveMap = [];
+        foreach ($approvedLeaves as $approvedLeave) {
+            $leaveCursor = Carbon::parse($approvedLeave->start_date, 'Asia/Jakarta')->max($startOfMonth);
+            $leaveEnd = Carbon::parse($approvedLeave->end_date, 'Asia/Jakarta')->min($endOfMonth);
+            while ($leaveCursor->lessThanOrEqualTo($leaveEnd)) {
+                $approvedLeaveMap[$approvedLeave->employee_id][$leaveCursor->toDateString()] = true;
+                $leaveCursor->addDay();
+            }
+        }
 
         $locale = app()->getLocale();
         $dayShortNames = $locale === 'en'
@@ -370,10 +399,13 @@ class RosterController extends Controller
         $endOfMonthStr = $endOfMonth->toDateString();
 
         foreach ($employees as $emp) {
+            $emp->setRelation('department', $departmentsById->get($emp->department_id));
             $schedulesMatrix[$emp->id] = [];
             $isOperationalStaff = (bool) ($emp->department?->is_operational ?? false);
 
             foreach ($emp->workSchedules as $ws) {
+                $ws->setRelation('shift', $shiftsById->get($ws->shift_id));
+                $ws->setRelation('dutyTag', $tagsById->get($ws->duty_tag_id));
                 $dateKey = $ws->schedule_date->toDateString();
                 $payload = $ws->toMatrixPayload();
                 $inCurrentMonth = $dateKey >= $startOfMonthStr && $dateKey <= $endOfMonthStr;
@@ -504,6 +536,7 @@ class RosterController extends Controller
             'schedulesMatrix',
             'formationByDate',
             'modAuditByDate',
+            'approvedLeaveMap',
             'draftCount',
             'publishedCount',
             'pendingDeleteCount',
@@ -943,6 +976,11 @@ class RosterController extends Controller
             $baseQuery->byDepartment($departmentId);
         }
 
+        $affectedEmployeeIds = (clone $baseQuery)
+            ->where('status', 'draft')
+            ->distinct()
+            ->pluck('employee_id');
+
         $deletedCount = (clone $baseQuery)
             ->where('status', 'pending_delete')
             ->delete();
@@ -955,7 +993,57 @@ class RosterController extends Controller
                 'published_end_time' => null,
             ]);
 
+        if ($publishedCount > 0 && $affectedEmployeeIds->isNotEmpty()) {
+            try {
+                $recipients = User::query()
+                    ->where('company_id', $company->id)
+                    ->where('is_active', true)
+                    ->whereHas('employee', function ($q) use ($company, $affectedEmployeeIds): void {
+                        $q->withoutGlobalScopes()
+                            ->where('company_id', $company->id)
+                            ->whereIn('id', $affectedEmployeeIds);
+                    })
+                    ->get();
+
+                $periodLabel = $startOfMonth->copy()->locale(app()->getLocale())->translatedFormat('F Y');
+                $push = $this->webPushService ?? app(WebPushService::class);
+                $push->notifyUsers(
+                    $recipients,
+                    'roster_published',
+                    __('pwa.notif_roster_published_title'),
+                    __('pwa.notif_roster_published_body', ['period' => $periodLabel]),
+                    route('roster.index', [], false),
+                    [
+                        'company_id' => $company->id,
+                        'month' => $month,
+                        'year' => $year,
+                    ]
+                );
+            } catch (Throwable $e) {
+                Log::warning('Failed to dispatch roster published notifications: '.$e->getMessage());
+            }
+        }
+
         $totalAffected = $publishedCount + $deletedCount;
+
+        if ($totalAffected > 0) {
+            ($this->auditTrailService ?? app(AuditTrailService::class))->record(
+                'published',
+                'work_schedule',
+                null,
+                [
+                    'published_count' => $publishedCount,
+                    'deleted_count' => $deletedCount,
+                    'month' => $month,
+                    'year' => $year,
+                    'department_id' => $departmentId,
+                ],
+                sprintf('Published %d work schedules (%d deleted) for %04d-%02d', $publishedCount, $deletedCount, $year, $month),
+                ['month' => $month, 'year' => $year, 'department_id' => $departmentId],
+                $actor,
+                (int) $company->id
+            );
+        }
 
         return response()->json([
             'message' => __('roster.published_successfully', ['count' => $totalAffected]),

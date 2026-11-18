@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\AttendanceController;
 use App\Http\Controllers\AttendanceVerificationController;
+use App\Http\Controllers\AuditLogController;
 use App\Http\Controllers\CompanySettingsController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\DepartmentController;
@@ -9,6 +10,8 @@ use App\Http\Controllers\LeaveRequestController;
 use App\Http\Controllers\LocaleController;
 use App\Http\Controllers\PreferenceController;
 use App\Http\Controllers\ProfileController;
+use App\Http\Controllers\PushSubscriptionController;
+use App\Http\Controllers\PwaController;
 use App\Http\Controllers\RosterController;
 use App\Http\Controllers\StaffProvisioningController;
 use Illuminate\Support\Facades\Route;
@@ -22,11 +25,23 @@ Route::get('/', function () {
 Route::post('/locale', LocaleController::class)->name('locale.update');
 Route::patch('/preferences', PreferenceController::class)->middleware('auth')->name('preferences.update');
 
+Route::get('/manifest.webmanifest', [PwaController::class, 'manifest'])->name('pwa.manifest');
+Route::get('/offline', [PwaController::class, 'offline'])->name('pwa.offline');
+
 Route::get('/dashboard', [DashboardController::class, 'index'])
     ->middleware(['auth', 'verified'])
     ->name('dashboard');
 
 Route::middleware('auth')->group(function () {
+    Route::get('/pwa/offline-snapshot', [PwaController::class, 'offlineSnapshot'])->name('pwa.snapshot');
+
+    Route::get('/notifications', [PushSubscriptionController::class, 'index'])->name('notifications.index');
+    Route::post('/notifications/push-subscriptions', [PushSubscriptionController::class, 'store'])->name('notifications.subscriptions.store');
+    Route::delete('/notifications/push-subscriptions', [PushSubscriptionController::class, 'destroy'])->name('notifications.subscriptions.destroy');
+    Route::post('/notifications/test-push', [PushSubscriptionController::class, 'testPush'])->name('notifications.testPush');
+    Route::post('/notifications/read-all', [PushSubscriptionController::class, 'markAllRead'])->name('notifications.markAllRead');
+    Route::post('/notifications/{userNotification}/read', [PushSubscriptionController::class, 'markRead'])->name('notifications.markRead');
+
     Route::get('/dashboard/today-schedules', [DashboardController::class, 'todaySchedules'])->name('dashboard.today-schedules');
 
     Route::get('/profile', [ProfileController::class, 'edit'])->name('profile.edit');
@@ -67,6 +82,7 @@ Route::middleware('auth')->group(function () {
     Route::get('/leave', [LeaveRequestController::class, 'index'])->name('leave.index');
     Route::get('/leave/calculate-days', [LeaveRequestController::class, 'calculateDays'])->name('leave.calculateDays');
     Route::put('/leave/smart-weights', [LeaveRequestController::class, 'updateSmartWeights'])->name('leave.smartWeights.update');
+    Route::post('/leave/smart-debug', [LeaveRequestController::class, 'smartDebug'])->name('leave.smartDebug');
     Route::put('/leave/types/{leaveType}/settings', [LeaveRequestController::class, 'updateLeaveTypeSettings'])->name('leave.types.updateSettings');
     Route::post('/leave/ledger/adjust', [LeaveRequestController::class, 'adjustLedger'])->name('leave.ledger.adjust');
     Route::get('/leave/ledger/{employee}', [LeaveRequestController::class, 'ledgerHistory'])->name('leave.ledger.history');
@@ -104,6 +120,9 @@ Route::middleware('auth')->group(function () {
 
     Route::post('/admin/companies', [CompanySettingsController::class, 'store'])->name('admin.companies.store');
     Route::post('/company/switch', [DashboardController::class, 'switchCompany'])->name('company.switch');
+
+    Route::get('/audit-logs', [AuditLogController::class, 'index'])->name('audit-logs.index');
+    Route::get('/audit-logs/{auditLog}', [AuditLogController::class, 'show'])->name('audit-logs.show');
 });
 
 require __DIR__.'/auth.php';

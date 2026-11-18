@@ -9,6 +9,7 @@ use App\Models\Employee;
 use App\Models\LeaveLedgerEntry;
 use App\Models\LeaveRequest;
 use App\Models\LeaveType;
+use App\Services\AuditTrailService;
 use App\Services\LeaveApprovalService;
 use App\Services\LeaveLedgerService;
 use App\Services\LeaveRequestService;
@@ -41,18 +42,20 @@ class LeaveRequestController extends Controller
         Gate::authorize('viewAny', LeaveRequest::class);
 
         $user = $request->user();
-        $employee = $user->employee?->load(['department', 'company']);
+        $user->loadMissing([
+            'company',
+            'employee' => fn ($q) => $q->withoutGlobalScopes()->with([
+                'department' => fn ($dq) => $dq->withoutGlobalScopes(),
+                'company',
+            ]),
+        ]);
+        $employee = $user->employee;
 
         $company = $employee?->company
             ?? $user->company
             ?? ($user->isSuperAdmin() && session('active_company_id')
                 ? Company::find(session('active_company_id'))
                 : Company::first());
-
-        // Ensure standard system leave types are available
-        foreach (array_keys(LeaveType::STANDARD_TYPES) as $stdCode) {
-            LeaveType::findByCode($stdCode, $company?->id);
-        }
 
         $leaveTypes = LeaveType::withoutGlobalScopes()
             ->with(['companySettings' => function ($sq) use ($company): void {
@@ -73,13 +76,73 @@ class LeaveRequestController extends Controller
             ->unique('code')
             ->values();
 
-        $alQuota = $employee !== null
-            ? $this->leaveRequestService->getQuotaSummary($employee, 'AL')
-            : ['ledger_balance' => 0.0, 'reserved_days' => 0.0, 'available_balance' => 0.0];
+        // Ensure standard system leave types are available if not yet seeded
+        $existingCodes = $leaveTypes->pluck('code')->all();
+        $provisionedNewType = false;
+        foreach (array_keys(LeaveType::STANDARD_TYPES) as $stdCode) {
+            if (! in_array($stdCode, $existingCodes, true)) {
+                LeaveType::findByCode($stdCode, $company?->id);
+                $provisionedNewType = true;
+            }
+        }
+        if ($provisionedNewType) {
+            $leaveTypes = LeaveType::withoutGlobalScopes()
+                ->with(['companySettings' => function ($sq) use ($company): void {
+                    $sq->withoutGlobalScopes();
+                    if ($company !== null) {
+                        $sq->where('company_id', $company->id);
+                    }
+                }])
+                ->where('is_active', true)
+                ->where(function ($q) use ($company): void {
+                    $q->whereNull('company_id');
+                    if ($company !== null) {
+                        $q->orWhere('company_id', $company->id);
+                    }
+                })
+                ->orderBy('id')
+                ->get()
+                ->unique('code')
+                ->values();
+        }
 
-        $dpQuota = $employee !== null
-            ? $this->leaveRequestService->getQuotaSummary($employee, 'DP')
-            : ['ledger_balance' => 0.0, 'reserved_days' => 0.0, 'available_balance' => 0.0];
+        $alLeaveType = $leaveTypes->firstWhere('code', 'AL') ?? 'AL';
+        $dpLeaveType = $leaveTypes->firstWhere('code', 'DP') ?? 'DP';
+
+        if ($employee !== null && $alLeaveType instanceof LeaveType && $dpLeaveType instanceof LeaveType) {
+            $reservedByType = LeaveRequest::withoutGlobalScopes()
+                ->where('company_id', $employee->company_id)
+                ->where('employee_id', $employee->id)
+                ->whereIn('leave_type_id', [$alLeaveType->id, $dpLeaveType->id])
+                ->whereIn('status', [LeaveRequest::STATUS_PENDING_MANAGER, LeaveRequest::STATUS_PENDING_HR])
+                ->selectRaw('leave_type_id, SUM(total_days) as reserved_sum')
+                ->groupBy('leave_type_id')
+                ->pluck('reserved_sum', 'leave_type_id');
+
+            $alLedgerBal = (int) $this->leaveLedgerService->getBalance($employee, $alLeaveType);
+            $alReserved = (int) round((float) ($reservedByType[$alLeaveType->id] ?? 0));
+            $alQuota = [
+                'ledger_balance' => $alLedgerBal,
+                'reserved_days' => $alReserved,
+                'available_balance' => max(0, $alLedgerBal - $alReserved),
+            ];
+
+            $dpLedgerBal = (int) $this->leaveLedgerService->getBalance($employee, $dpLeaveType);
+            $dpReserved = (int) round((float) ($reservedByType[$dpLeaveType->id] ?? 0));
+            $dpQuota = [
+                'ledger_balance' => $dpLedgerBal,
+                'reserved_days' => $dpReserved,
+                'available_balance' => max(0, $dpLedgerBal - $dpReserved),
+            ];
+        } else {
+            $alQuota = $employee !== null
+                ? $this->leaveRequestService->getQuotaSummary($employee, $alLeaveType)
+                : ['ledger_balance' => 0, 'reserved_days' => 0, 'available_balance' => 0];
+
+            $dpQuota = $employee !== null
+                ? $this->leaveRequestService->getQuotaSummary($employee, $dpLeaveType)
+                : ['ledger_balance' => 0, 'reserved_days' => 0, 'available_balance' => 0];
+        }
 
         $isAdminTier = $user->isAdminOrAbove();
         $isManagerTier = $user->isManager();
@@ -98,11 +161,13 @@ class LeaveRequestController extends Controller
         } elseif ($isManagerTier && $employee?->department) {
             $departments = collect([$employee->department]);
         }
+        $departmentsById = $departments->keyBy('id');
 
         $smartWeightsByDept = [];
-        if ($canManageSmartWeights) {
+        if ($canManageSmartWeights && $departments->isNotEmpty()) {
+            $weightsByDeptId = $this->smartDecisionService->getOrCreateWeightsForDepartments($departments);
             foreach ($departments as $dept) {
-                $weights = $this->smartDecisionService->getOrCreateDepartmentWeights($dept);
+                $weights = $weightsByDeptId[$dept->id] ?? collect();
                 $smartWeightsByDept[$dept->id] = $weights->mapWithKeys(fn ($w) => [
                     $w->criteria_code => [
                         'raw_weight' => (int) $w->raw_weight,
@@ -116,12 +181,13 @@ class LeaveRequestController extends Controller
         $ledgerEmployees = collect();
         if ($isAdminTier && $company !== null) {
             $ledgerEmployees = Employee::withoutGlobalScopes()
-                ->with(['user' => fn ($uq) => $uq->withoutGlobalScopes(), 'department' => fn ($dq) => $dq->withoutGlobalScopes()])
+                ->with(['user' => fn ($uq) => $uq->withoutGlobalScopes()])
                 ->where('company_id', $company->id)
                 ->where('status', 'active')
                 ->orderBy('department_id')
                 ->orderBy('id')
-                ->get();
+                ->get()
+                ->each(fn (Employee $emp) => $emp->setRelation('department', $departmentsById->get($emp->department_id)));
         } elseif ($isManagerTier && $employee !== null) {
             $ledgerEmployees = Employee::withoutGlobalScopes()
                 ->with(['user' => fn ($uq) => $uq->withoutGlobalScopes(), 'department' => fn ($dq) => $dq->withoutGlobalScopes()])
@@ -137,11 +203,9 @@ class LeaveRequestController extends Controller
 
         $query = LeaveRequest::withoutGlobalScopes()
             ->with([
-                'leaveType' => fn ($lq) => $lq->withoutGlobalScopes(),
-                'employee' => fn ($eq) => $eq->withoutGlobalScopes()->with([
-                    'user',
-                    'department' => fn ($dq) => $dq->withoutGlobalScopes(),
-                ]),
+                'managerApprover',
+                'hrApprover',
+                'rejector',
             ]);
 
         if ($isAdminTier) {
@@ -203,6 +267,47 @@ class LeaveRequestController extends Controller
             ->paginate(20)
             ->withQueryString();
 
+        $leaveTypesById = $leaveTypes->keyBy('id');
+        $ledgerEmployeesById = $ledgerEmployees->keyBy('id');
+
+        $missingEmployeeIds = [];
+        $missingLeaveTypeIds = [];
+        foreach ($leaveRequests as $lr) {
+            if ($leaveTypesById->has($lr->leave_type_id)) {
+                $lr->setRelation('leaveType', $leaveTypesById->get($lr->leave_type_id));
+            } else {
+                $missingLeaveTypeIds[] = $lr->leave_type_id;
+            }
+
+            if ($ledgerEmployeesById->has($lr->employee_id)) {
+                $lr->setRelation('employee', $ledgerEmployeesById->get($lr->employee_id));
+            } else {
+                $missingEmployeeIds[] = $lr->employee_id;
+            }
+        }
+
+        if ($missingLeaveTypeIds !== []) {
+            $extraTypes = LeaveType::withoutGlobalScopes()->whereIn('id', array_unique($missingLeaveTypeIds))->get()->keyBy('id');
+            foreach ($leaveRequests as $lr) {
+                if (! $lr->relationLoaded('leaveType')) {
+                    $lr->setRelation('leaveType', $extraTypes->get($lr->leave_type_id));
+                }
+            }
+        }
+
+        if ($missingEmployeeIds !== []) {
+            $extraEmps = Employee::withoutGlobalScopes()
+                ->with(['user', 'department' => fn ($dq) => $dq->withoutGlobalScopes()])
+                ->whereIn('id', array_unique($missingEmployeeIds))
+                ->get()
+                ->keyBy('id');
+            foreach ($leaveRequests as $lr) {
+                if (! $lr->relationLoaded('employee')) {
+                    $lr->setRelation('employee', $extraEmps->get($lr->employee_id));
+                }
+            }
+        }
+
         return view('leave.index', [
             'currentCompany' => $company,
             'employee' => $employee,
@@ -220,6 +325,16 @@ class LeaveRequestController extends Controller
             'isAdminTier' => $isAdminTier,
             'canManageSmartWeights' => $canManageSmartWeights,
             'canManageLeaveTypeSettings' => $canManageLeaveTypeSettings,
+            'canDebugSmart' => $user->role === 'super_admin',
+            'debugRequestsList' => $leaveRequests->map(fn (LeaveRequest $r): array => [
+                'id' => $r->id,
+                'employee_name' => $r->employee?->name ?? 'Karyawan',
+                'department_name' => $r->employee?->department?->name ?? '-',
+                'leave_type_code' => $r->leaveType?->code ?? '-',
+                'start_date' => $r->start_date?->toDateString(),
+                'total_days' => (int) $r->total_days,
+                'status' => $r->status,
+            ])->values()->all(),
             'smartWeightsByDept' => $smartWeightsByDept,
             'criteriaDefinitions' => SmartDecisionService::CRITERIA_DEFINITIONS,
             'filterStatus' => $filterStatus,
@@ -304,7 +419,7 @@ class LeaveRequestController extends Controller
                     'leave_type_code' => $leaveRequest->leaveType?->code,
                     'start_date' => $leaveRequest->start_date?->toDateString(),
                     'end_date' => $leaveRequest->end_date?->toDateString(),
-                    'total_days' => (float) $leaveRequest->total_days,
+                    'total_days' => (int) $leaveRequest->total_days,
                     'status' => $leaveRequest->status,
                     'smart_score' => $leaveRequest->smart_score !== null ? (float) $leaveRequest->smart_score : null,
                     'smart_metrics' => $leaveRequest->smart_metrics,
@@ -354,7 +469,7 @@ class LeaveRequestController extends Controller
                     'leave_type_code' => $updated->leaveType?->code,
                     'start_date' => $updated->start_date?->toDateString(),
                     'end_date' => $updated->end_date?->toDateString(),
-                    'total_days' => (float) $updated->total_days,
+                    'total_days' => (int) $updated->total_days,
                     'reason' => $updated->reason,
                     'status' => $updated->status,
                     'ledger_entry_id' => $updated->ledger_entry_id,
@@ -552,9 +667,9 @@ class LeaveRequestController extends Controller
                 'leave_type_code' => $entry->leaveType?->code ?? '—',
                 'leave_type_name' => $entry->leaveType?->name ?? '—',
                 'transaction_type' => $entry->transaction_type,
-                'amount' => (float) $entry->amount,
-                'remaining_amount' => (float) $entry->remaining_amount,
-                'balance_after' => (float) $entry->balance_after,
+                'amount' => (int) $entry->amount,
+                'remaining_amount' => (int) $entry->remaining_amount,
+                'balance_after' => (int) $entry->balance_after,
                 'expires_at' => $entry->expires_at?->toDateString(),
                 'notes' => $entry->notes,
                 'created_by_name' => $entry->creator?->name ?? 'System',
@@ -646,7 +761,7 @@ class LeaveRequestController extends Controller
             $meta['expires_at'] = $validated['expires_at'];
         }
 
-        $signedAmount = (float) $validated['amount'];
+        $signedAmount = (int) $validated['amount'];
         if (($validated['direction'] ?? null) === 'debit' && $signedAmount > 0) {
             $signedAmount = -$signedAmount;
         } elseif (($validated['direction'] ?? null) === 'credit' && $signedAmount < 0) {
@@ -666,6 +781,24 @@ class LeaveRequestController extends Controller
             ]);
         }
 
+        app(AuditTrailService::class)->record(
+            'ledger_adjusted',
+            $entry,
+            null,
+            [
+                'employee_id' => $targetEmployee->id,
+                'leave_type_code' => $leaveType->code,
+                'transaction_type' => $entry->transaction_type,
+                'amount' => (int) $entry->amount,
+                'balance_after' => (int) $entry->balance_after,
+                'notes' => $entry->notes,
+            ],
+            "Manual leave ledger adjustment ({$leaveType->code}: {$entry->amount})",
+            ['employee_id' => $targetEmployee->id, 'leave_type_code' => $leaveType->code],
+            $user,
+            (int) $targetEmployee->company_id
+        );
+
         if ($request->expectsJson()) {
             return response()->json([
                 'status' => 'ok',
@@ -678,9 +811,9 @@ class LeaveRequestController extends Controller
                     'leave_type_id' => $entry->leave_type_id,
                     'leave_type_code' => $leaveType->code,
                     'transaction_type' => $entry->transaction_type,
-                    'amount' => (float) $entry->amount,
-                    'remaining_amount' => (float) $entry->remaining_amount,
-                    'balance_after' => (float) $entry->balance_after,
+                    'amount' => (int) $entry->amount,
+                    'remaining_amount' => (int) $entry->remaining_amount,
+                    'balance_after' => (int) $entry->balance_after,
                     'expires_at' => $entry->expires_at?->toDateString(),
                     'notes' => $entry->notes,
                 ],
@@ -767,7 +900,7 @@ class LeaveRequestController extends Controller
 
         $validated = $request->validate([
             'validity_months' => ['nullable', 'integer', 'min:1', 'max:36'],
-            'default_annual_quota' => ['nullable', 'numeric', 'min:0', 'max:365'],
+            'default_annual_quota' => ['nullable', 'integer', 'min:0', 'max:365'],
         ]);
 
         $validityMonths = array_key_exists('validity_months', $validated) && $validated['validity_months'] !== null
@@ -775,7 +908,7 @@ class LeaveRequestController extends Controller
             : null;
 
         $defaultAnnualQuota = array_key_exists('default_annual_quota', $validated) && $validated['default_annual_quota'] !== null
-            ? round((float) $validated['default_annual_quota'], 2)
+            ? (int) $validated['default_annual_quota']
             : $leaveType->getEffectiveAnnualQuota((int) $companyId);
 
         $setting = CompanyLeaveTypeSetting::withoutGlobalScopes()->updateOrCreate(
@@ -806,7 +939,7 @@ class LeaveRequestController extends Controller
                     'leave_type_code' => $leaveType->code,
                     'company_id' => (int) $companyId,
                     'validity_months' => $setting->validity_months !== null ? (int) $setting->validity_months : null,
-                    'default_annual_quota' => $setting->default_annual_quota !== null ? (float) $setting->default_annual_quota : null,
+                    'default_annual_quota' => $setting->default_annual_quota !== null ? (int) $setting->default_annual_quota : null,
                 ],
             ]);
         }
@@ -831,6 +964,44 @@ class LeaveRequestController extends Controller
                 'data' => $analysis,
             ],
             $analysis
+        ));
+    }
+
+    /**
+     * Super Admin only: execute interactive What-If SPK SMART simulation & DB telemetry inspection.
+     */
+    public function smartDebug(Request $request): JsonResponse
+    {
+        Gate::authorize('debugSmartEngine', LeaveRequest::class);
+
+        $validated = $request->validate([
+            'weights' => ['nullable', 'array'],
+            'weights.C1' => ['nullable', 'integer', 'min:0', 'max:100'],
+            'weights.C2' => ['nullable', 'integer', 'min:0', 'max:100'],
+            'weights.C3' => ['nullable', 'integer', 'min:0', 'max:100'],
+            'weights.C4' => ['nullable', 'integer', 'min:0', 'max:100'],
+            'weights.C5' => ['nullable', 'integer', 'min:0', 'max:100'],
+            'min_staff_per_shift' => ['nullable', 'integer', 'min:1', 'max:500'],
+            'total_department_staff' => ['nullable', 'integer', 'min:1', 'max:2000'],
+            'leave_request_id' => ['nullable'],
+            'employee_id' => ['nullable', 'integer'],
+            'candidates' => ['nullable', 'array', 'max:30'],
+            'candidates.*.name' => ['nullable', 'string', 'max:120'],
+            'candidates.*.C1' => ['required_with:candidates', 'numeric'],
+            'candidates.*.C2' => ['required_with:candidates', 'numeric'],
+            'candidates.*.C3' => ['required_with:candidates', 'numeric'],
+            'candidates.*.C4' => ['required_with:candidates', 'numeric'],
+            'candidates.*.C5' => ['required_with:candidates', 'numeric'],
+        ]);
+
+        $simulation = $this->smartDecisionService->simulateDebugScenario($validated);
+
+        return response()->json(array_merge(
+            [
+                'success' => true,
+                'data' => $simulation,
+            ],
+            $simulation
         ));
     }
 

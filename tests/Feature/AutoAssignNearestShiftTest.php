@@ -315,4 +315,96 @@ class AutoAssignNearestShiftTest extends TestCase
         $this->assertSame($this->shiftOff->id, $lockedSchedule->shift_id);
         $this->assertStringStartsWith('LEAVE:AL:', (string) $lockedSchedule->notes);
     }
+
+    /**
+     * Skenario 5: Kebijakan Perusahaan `auto_assign_shift_on_clock_in = false`.
+     * - Karyawan tanpa jadwal aktif (tidak ada jadwal maupun jadwal OFF) ditolak HTTP 422 pada Clock-In reguler & dinas luar.
+     * - Tidak ada WorkSchedule baru maupun Attendance yang tercipta/tertimpa.
+     * - Dashboard menampilkan status kunci kebijakan dan menonaktifkan tombol Clock-In.
+     * - Karyawan yang MEMILIKI jadwal shift kerja aktif tetap dapat melakukan Clock-In secara normal.
+     */
+    public function test_scenario_5_disabled_auto_assign_shift_blocks_unscheduled_clock_in_and_allows_scheduled(): void
+    {
+        Carbon::setTestNow(Carbon::create(2026, 11, 12, 8, 5, 0, 'Asia/Jakarta'));
+
+        $this->company->update(['auto_assign_shift_on_clock_in' => false]);
+
+        $unscheduledEmp = $this->createEmployee('Bambang Unscheduled', 'bambang.unsched');
+        $offEmp = $this->createEmployee('Siti DayOff', 'siti.dayoff');
+        $scheduledEmp = $this->createEmployee('Andi Scheduled', 'andi.sched');
+
+        $offSchedule = WorkSchedule::withoutGlobalScopes()->create([
+            'company_id' => $this->company->id,
+            'employee_id' => $offEmp->id,
+            'shift_id' => $this->shiftOff->id,
+            'schedule_date' => '2026-11-12',
+            'status' => 'published',
+        ]);
+
+        WorkSchedule::withoutGlobalScopes()->create([
+            'company_id' => $this->company->id,
+            'employee_id' => $scheduledEmp->id,
+            'shift_id' => $this->shiftMo->id,
+            'schedule_date' => '2026-11-12',
+            'status' => 'published',
+        ]);
+
+        // 1. Dashboard karyawan tanpa jadwal menampilkan notice kebijakan & tombol clock-in terkunci
+        $this->actingAs($unscheduledEmp->user)
+            ->get(route('dashboard'))
+            ->assertOk()
+            ->assertSee('isClockInBlockedByUnscheduledPolicy: true', false)
+            ->assertSee(__('attendance.unscheduled_clock_in_policy_notice'));
+
+        // 2. Clock-In reguler tanpa jadwal ditolak HTTP 422
+        $this->actingAs($unscheduledEmp->user)
+            ->postJson(route('attendance.clockIn'), [
+                'latitude' => -7.9043753,
+                'longitude' => 110.0572110,
+                'photo' => UploadedFile::fake()->image('unscheduled_in.jpg'),
+            ])
+            ->assertStatus(422)
+            ->assertJsonPath('success', false)
+            ->assertJsonPath('message', __('attendance.unscheduled_clock_in_disabled'));
+
+        // 3. Clock-In dinas luar tanpa jadwal juga ditolak HTTP 422
+        $this->actingAs($unscheduledEmp->user)
+            ->postJson(route('attendance.clockInOutside'), [
+                'latitude' => -7.795580,
+                'longitude' => 110.369490,
+                'outside_category' => 'client_visit',
+                'outside_location_name' => 'Kantor Klien',
+                'notes' => 'Kunjungan mendadak tanpa jadwal.',
+                'photo' => UploadedFile::fake()->image('unscheduled_outside.jpg'),
+            ])
+            ->assertStatus(422)
+            ->assertJsonPath('success', false)
+            ->assertJsonPath('message', __('attendance.unscheduled_clock_in_disabled'));
+
+        // Pastikan tidak ada jadwal maupun presensi yang dibuat
+        $this->assertSame(0, WorkSchedule::withoutGlobalScopes()->where('employee_id', $unscheduledEmp->id)->count());
+        $this->assertSame(0, Attendance::withoutGlobalScopes()->where('employee_id', $unscheduledEmp->id)->count());
+
+        // 4. Karyawan dengan jadwal OFF saja juga ditolak HTTP 422 & jadwal OFF tidak tertimpa
+        $this->actingAs($offEmp->user)
+            ->postJson(route('attendance.clockIn'), [
+                'latitude' => -7.9043753,
+                'longitude' => 110.0572110,
+                'photo' => UploadedFile::fake()->image('off_emp_in.jpg'),
+            ])
+            ->assertStatus(422)
+            ->assertJsonPath('message', __('attendance.unscheduled_clock_in_disabled'));
+
+        $this->assertSame($this->shiftOff->id, $offSchedule->fresh()->shift_id);
+
+        // 5. Karyawan YANG MEMILIKI jadwal shift kerja aktif tetap dapat Clock-In normal (HTTP 200 OK)
+        $this->actingAs($scheduledEmp->user)
+            ->postJson(route('attendance.clockIn'), [
+                'latitude' => -7.9043753,
+                'longitude' => 110.0572110,
+                'photo' => UploadedFile::fake()->image('scheduled_in.jpg'),
+            ])
+            ->assertOk()
+            ->assertJsonPath('success', true);
+    }
 }

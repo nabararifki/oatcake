@@ -13,7 +13,7 @@ use Illuminate\Support\Facades\DB;
 class DpCommitService
 {
     /**
-     * Minimum actual work duration (in hours) required on a public holiday to earn +1.00 DP.
+     * Minimum actual work duration (in hours) required on a public holiday to earn +1 DP.
      */
     public const MIN_WORK_HOURS_FOR_DP = 4.0;
 
@@ -77,7 +77,7 @@ class DpCommitService
             $entry = $this->ledgerService->recordCredit(
                 $employee,
                 $dpLeaveType ?? 'DP',
-                1.00,
+                1,
                 [
                     'reference_type' => 'attendance',
                     'reference_id' => $lockedAttendance->id,

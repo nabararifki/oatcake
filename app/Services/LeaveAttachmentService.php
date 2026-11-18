@@ -127,6 +127,8 @@ class LeaveAttachmentService
                     $image->scaleDown(800, 800);
                     $binaryOutput = (string) $image->encodeUsingFormat($format, quality: 50);
                 }
+
+                unset($encoded, $image, $manager, $rawBytes);
             } catch (Throwable) {
                 throw ValidationException::withMessages([
                     'attachment' => [__('leave.err_attachment_invalid')],
