@@ -97,6 +97,8 @@
                              errGpsGeneric: {{ Js::from(__('attendance.err_gps_generic')) }},
                              errValidation: {{ Js::from(__('attendance.err_validation')) }},
                              errNetwork: {{ Js::from(__('attendance.err_network')) }},
+                             errUploadTimeout: {{ Js::from(__('attendance.err_upload_timeout')) }},
+                             errSessionExpired: {{ Js::from(__('attendance.err_session_expired')) }},
                              errPayloadTooLarge: {{ Js::from(__('attendance.err_payload_too_large')) }},
                              errPhotoProcessingFailed: {{ Js::from(__('attendance.err_photo_processing_failed')) }},
                              errServerResponse: {{ Js::from(__('attendance.err_server_response')) }},
@@ -397,6 +399,33 @@
                 <!-- Modal Swafoto Presensi Masuk (Clock-In) -->
                 <x-ui.modal name="clock-in-selfie-modal" :title="__('attendance.modal_clock_in_selfie_title')" maxWidth="md">
                     <form @submit.prevent="submitSelfieAttendance('clock-in')" class="space-y-4">
+                        <div x-show="gpsErrorMessage !== ''"
+                             x-cloak
+                             role="alert"
+                             :class="gpsErrorType === 'INSECURE_CONTEXT'
+                                 ? 'border-red-500/40 bg-red-500/10 text-red-700 dark:text-red-300'
+                                 : 'border-amber-500/40 bg-amber-500/10 text-amber-800 dark:text-amber-300'"
+                             class="rounded-xl border px-3.5 py-2.5 text-xs flex flex-wrap items-center justify-between gap-2">
+                            <span class="font-medium flex-1 min-w-0" x-text="gpsErrorMessage"></span>
+                            <button type="button"
+                                    @click="detectLocation()"
+                                    class="inline-flex items-center gap-1 rounded-lg bg-surface px-2.5 py-1 text-2xs font-bold text-ink border border-line hover:bg-surface-muted transition cursor-pointer shrink-0">
+                                {{ __('attendance.btn_retry_gps') }}
+                            </button>
+                        </div>
+
+                        <div x-show="feedbackMessage && !feedbackSuccess"
+                             x-cloak
+                             role="alert"
+                             class="rounded-xl border border-red-500/30 bg-red-500/10 px-3.5 py-2.5 text-xs font-medium text-red-700 dark:text-red-300 flex items-center justify-between gap-2">
+                            <span x-text="feedbackMessage"></span>
+                            <button type="button" @click="feedbackMessage = ''" class="text-red-600/80 hover:text-red-700 dark:text-red-300 cursor-pointer shrink-0">
+                                <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                    <path d="M6 18L18 6M6 6l12 12" />
+                                </svg>
+                            </button>
+                        </div>
+
                         <div class="space-y-2">
                             <label class="block text-xs font-semibold text-ink">
                                 {{ __('attendance.take_selfie') }} <span class="text-red-500">*</span>
@@ -462,6 +491,44 @@
                 <!-- Modal Swafoto Presensi Pulang (Clock-Out) -->
                 <x-ui.modal name="clock-out-selfie-modal" :title="__('attendance.modal_clock_out_selfie_title')" maxWidth="md">
                     <form @submit.prevent="submitSelfieAttendance('clock-out')" class="space-y-4">
+                        <div x-show="distanceMeters !== null && !isInsideGeofence"
+                             x-cloak
+                             role="status"
+                             class="rounded-xl border border-amber-500/30 bg-amber-500/10 px-3.5 py-2.5 text-xs font-medium text-amber-800 dark:text-amber-300 flex items-center gap-2">
+                            <svg class="w-4 h-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                <path d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z" />
+                            </svg>
+                            <span>{{ __('dashboard.gps_outside_hotel') }}</span>
+                            <span class="font-mono text-2xs opacity-85" x-text="'(' + distanceMeters + 'm)'"></span>
+                        </div>
+
+                        <div x-show="gpsErrorMessage !== ''"
+                             x-cloak
+                             role="alert"
+                             :class="gpsErrorType === 'INSECURE_CONTEXT'
+                                 ? 'border-red-500/40 bg-red-500/10 text-red-700 dark:text-red-300'
+                                 : 'border-amber-500/40 bg-amber-500/10 text-amber-800 dark:text-amber-300'"
+                             class="rounded-xl border px-3.5 py-2.5 text-xs flex flex-wrap items-center justify-between gap-2">
+                            <span class="font-medium flex-1 min-w-0" x-text="gpsErrorMessage"></span>
+                            <button type="button"
+                                    @click="detectLocation()"
+                                    class="inline-flex items-center gap-1 rounded-lg bg-surface px-2.5 py-1 text-2xs font-bold text-ink border border-line hover:bg-surface-muted transition cursor-pointer shrink-0">
+                                {{ __('attendance.btn_retry_gps') }}
+                            </button>
+                        </div>
+
+                        <div x-show="feedbackMessage && !feedbackSuccess"
+                             x-cloak
+                             role="alert"
+                             class="rounded-xl border border-red-500/30 bg-red-500/10 px-3.5 py-2.5 text-xs font-medium text-red-700 dark:text-red-300 flex items-center justify-between gap-2">
+                            <span x-text="feedbackMessage"></span>
+                            <button type="button" @click="feedbackMessage = ''" class="text-red-600/80 hover:text-red-700 dark:text-red-300 cursor-pointer shrink-0">
+                                <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                    <path d="M6 18L18 6M6 6l12 12" />
+                                </svg>
+                            </button>
+                        </div>
+
                         <div class="space-y-2">
                             <label class="block text-xs font-semibold text-ink">
                                 {{ __('attendance.take_selfie') }} <span class="text-red-500">*</span>
@@ -507,6 +574,18 @@
                             </div>
                         </div>
 
+                        <div x-show="distanceMeters !== null && !isInsideGeofence" x-cloak class="space-y-1.5">
+                            <label for="dashboard_clock_out_notes" class="block text-xs font-semibold text-ink">
+                                {{ __('attendance.outside_notes_label') }}
+                            </label>
+                            <textarea id="dashboard_clock_out_notes"
+                                      x-model="clockOutNotes"
+                                      rows="2"
+                                      maxlength="500"
+                                      placeholder="{{ __('attendance.outside_notes_placeholder') }}"
+                                      class="w-full rounded-xl border border-line bg-surface-muted px-3 py-2 text-xs text-ink placeholder:text-ink-muted/70 focus:outline-none focus:ring-2 focus:ring-accent"></textarea>
+                        </div>
+
                         <div class="pt-2 flex items-center justify-end gap-2">
                             <button type="button"
                                     @click="$dispatch('close-modal', 'clock-out-selfie-modal')"
@@ -527,6 +606,33 @@
                 <!-- Modal Formulir Presensi Dinas Luar (Kamera Langsung Terkunci) -->
                 <x-ui.modal name="dashboard-outside-attendance-modal" :title="__('attendance.modal_outside_title')" maxWidth="lg">
                     <form @submit.prevent="submitOutsideAttendance()" class="space-y-4">
+                        <div x-show="gpsErrorMessage !== ''"
+                             x-cloak
+                             role="alert"
+                             :class="gpsErrorType === 'INSECURE_CONTEXT'
+                                 ? 'border-red-500/40 bg-red-500/10 text-red-700 dark:text-red-300'
+                                 : 'border-amber-500/40 bg-amber-500/10 text-amber-800 dark:text-amber-300'"
+                             class="rounded-xl border px-3.5 py-2.5 text-xs flex flex-wrap items-center justify-between gap-2">
+                            <span class="font-medium flex-1 min-w-0" x-text="gpsErrorMessage"></span>
+                            <button type="button"
+                                    @click="detectLocation()"
+                                    class="inline-flex items-center gap-1 rounded-lg bg-surface px-2.5 py-1 text-2xs font-bold text-ink border border-line hover:bg-surface-muted transition cursor-pointer shrink-0">
+                                {{ __('attendance.btn_retry_gps') }}
+                            </button>
+                        </div>
+
+                        <div x-show="feedbackMessage && !feedbackSuccess"
+                             x-cloak
+                             role="alert"
+                             class="rounded-xl border border-red-500/30 bg-red-500/10 px-3.5 py-2.5 text-xs font-medium text-red-700 dark:text-red-300 flex items-center justify-between gap-2">
+                            <span x-text="feedbackMessage"></span>
+                            <button type="button" @click="feedbackMessage = ''" class="text-red-600/80 hover:text-red-700 dark:text-red-300 cursor-pointer shrink-0">
+                                <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                    <path d="M6 18L18 6M6 6l12 12" />
+                                </svg>
+                            </button>
+                        </div>
+
                         <div class="space-y-2">
                             <label class="block text-xs font-semibold text-ink">
                                 {{ __('attendance.take_selfie') }} <span class="text-red-500">*</span>
@@ -670,6 +776,7 @@
                         outsideCategory: 'client_visit',
                         outsideLocationName: '',
                         outsideNotes: '',
+                        clockOutNotes: '',
                         submittingOutside: false,
 
                         init() {
@@ -814,6 +921,7 @@
                                 this.feedbackMessage = this.i18n.offlineAttendanceWarning;
                                 return;
                             }
+                            this.feedbackMessage = '';
                             window.dispatchEvent(new CustomEvent('open-modal', { detail: 'dashboard-outside-attendance-modal' }));
                         },
 
@@ -897,7 +1005,7 @@
                             if (response.status === 413) {
                                 errorDetail = this.i18n.errPayloadTooLarge;
                             } else if (response.status === 419) {
-                                errorDetail = 'Sesi telah kedaluwarsa. Silakan muat ulang halaman.';
+                                errorDetail = this.i18n.errSessionExpired;
                             } else {
                                 errorDetail = (this.i18n.errServerResponse || 'Respons server tidak valid (:status).').replace(':status', response.status);
                             }
@@ -906,6 +1014,19 @@
                                 success: false,
                                 message: errorDetail,
                             };
+                        },
+
+                        async fetchWithTimeout(url, options = {}, timeoutMs = 30000) {
+                            const controller = new AbortController();
+                            const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+                            try {
+                                return await fetch(url, {
+                                    ...options,
+                                    signal: controller.signal,
+                                });
+                            } finally {
+                                clearTimeout(timeoutId);
+                            }
                         },
 
                         async submitOutsideAttendance() {
@@ -939,7 +1060,7 @@
                             formData.append('photo', uploadFile);
 
                             try {
-                                const response = await fetch(this.outsideClockInUrl, {
+                                const response = await this.fetchWithTimeout(this.outsideClockInUrl, {
                                     method: 'POST',
                                     headers: {
                                         'Accept': 'application/json',
@@ -947,7 +1068,7 @@
                                         'X-CSRF-TOKEN': this.csrfToken || document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '',
                                     },
                                     body: formData,
-                                });
+                                }, 30000);
 
                                 const result = await this.parseServerResponse(response);
 
@@ -963,7 +1084,9 @@
                                 }
                             } catch (error) {
                                 this.feedbackSuccess = false;
-                                this.feedbackMessage = error.message || this.i18n.errNetwork;
+                                this.feedbackMessage = (error && error.name === 'AbortError')
+                                    ? this.i18n.errUploadTimeout
+                                    : this.i18n.errNetwork;
                                 this.submittingOutside = false;
                             }
                         },
@@ -997,6 +1120,7 @@
                                 return;
                             }
                             this.selfieInFile = null;
+                            this.feedbackMessage = '';
                             if (this.selfieInPreviewUrl) {
                                 URL.revokeObjectURL(this.selfieInPreviewUrl);
                                 this.selfieInPreviewUrl = null;
@@ -1006,6 +1130,8 @@
 
                         openClockOutSelfieModal() {
                             this.selfieOutFile = null;
+                            this.clockOutNotes = '';
+                            this.feedbackMessage = '';
                             if (this.selfieOutPreviewUrl) {
                                 URL.revokeObjectURL(this.selfieOutPreviewUrl);
                                 this.selfieOutPreviewUrl = null;
@@ -1090,9 +1216,12 @@
                                 formData.append('latitude', this.userLat);
                                 formData.append('longitude', this.userLon);
                                 formData.append('photo', uploadFile);
+                                if (action === 'clock-out' && this.clockOutNotes && this.clockOutNotes.trim() !== '') {
+                                    formData.append('notes', this.clockOutNotes.trim());
+                                }
 
                                 try {
-                                    const response = await fetch(targetUrl, {
+                                    const response = await this.fetchWithTimeout(targetUrl, {
                                         method: 'POST',
                                         headers: {
                                             'Accept': 'application/json',
@@ -1100,7 +1229,7 @@
                                             'X-CSRF-TOKEN': this.csrfToken || document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '',
                                         },
                                         body: formData,
-                                    });
+                                    }, 30000);
 
                                     const result = await this.parseServerResponse(response);
 
@@ -1122,7 +1251,9 @@
                                     }
                                 } catch (error) {
                                     this.feedbackSuccess = false;
-                                    this.feedbackMessage = error.message || this.i18n.errNetwork;
+                                    this.feedbackMessage = (error && error.name === 'AbortError')
+                                        ? this.i18n.errUploadTimeout
+                                        : this.i18n.errNetwork;
                                     this.submitting = false;
                                 }
                             };

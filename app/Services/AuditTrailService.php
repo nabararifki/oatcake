@@ -45,6 +45,33 @@ class AuditTrailService
     ];
 
     /**
+     * Re-entrant suppression depth counter for temporary audit trail suspension.
+     */
+    private static int $suppressionDepth = 0;
+
+    /**
+     * Execute a callback with audit trail recording temporarily suspended.
+     */
+    public static function withoutRecording(callable $callback): mixed
+    {
+        self::$suppressionDepth++;
+
+        try {
+            return $callback();
+        } finally {
+            self::$suppressionDepth = max(0, self::$suppressionDepth - 1);
+        }
+    }
+
+    /**
+     * Determine whether audit trail recording is currently suppressed.
+     */
+    public static function isSuppressed(): bool
+    {
+        return self::$suppressionDepth > 0;
+    }
+
+    /**
      * Record an immutable append-only audit log entry with sanitized JSONB payloads and HTTP metadata.
      *
      * @param  array<string, mixed>|null  $oldValues
@@ -61,6 +88,10 @@ class AuditTrailService
         ?User $actor = null,
         ?int $companyId = null
     ): ?AuditLog {
+        if (self::$suppressionDepth > 0) {
+            return null;
+        }
+
         try {
             if (! Schema::hasTable('audit_logs')) {
                 return null;

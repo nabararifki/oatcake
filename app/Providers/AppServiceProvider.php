@@ -6,8 +6,8 @@ use App\Models\AuditLog;
 use App\Models\Company;
 use App\Models\Department;
 use App\Models\Employee;
-use App\Models\User;
 use App\Policies\AuditLogPolicy;
+use App\Policies\CompanyBackupPolicy;
 use App\Policies\CompanyPolicy;
 use App\Policies\DepartmentPolicy;
 use App\Policies\EmployeePolicy;
@@ -31,16 +31,13 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
-        Gate::before(function (User $user, string $ability) {
-            if ($user->isSuperAdmin()) {
-                return true;
-            }
-        });
-
         Gate::policy(AuditLog::class, AuditLogPolicy::class);
         Gate::policy(Company::class, CompanyPolicy::class);
         Gate::policy(Department::class, DepartmentPolicy::class);
         Gate::policy(Employee::class, EmployeePolicy::class);
+
+        Gate::define('manage-company-backups', [CompanyBackupPolicy::class, 'manage']);
+        Gate::define('restore-company-backups', [CompanyBackupPolicy::class, 'restore']);
 
         View::composer(['layouts.app', 'layouts.guest'], function ($view) {
             $user = auth()->user();

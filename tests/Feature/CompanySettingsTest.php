@@ -74,7 +74,7 @@ class CompanySettingsTest extends TestCase
         $fixture = $this->createFixture();
 
         // 1. Akses halaman pengaturan properti (/settings/company)
-        $editResponse = $this->actingAs($fixture['adminUser'])->get(route('settings.company.edit'));
+        $editResponse = $this->actingAs($fixture['adminUser'])->get(route('settings.company'));
         $editResponse->assertOk()
             ->assertSee('Novotel Yogyakarta International Airport Kulon Progo')
             ->assertSee('NOVOTEL-YIA');
@@ -125,7 +125,7 @@ class CompanySettingsTest extends TestCase
 
         // Role user ditolak 403 Forbidden
         $this->actingAs($fixture['staffUser'])
-            ->get(route('settings.company.edit'))
+            ->get(route('settings.company'))
             ->assertForbidden();
 
         $this->actingAs($fixture['staffUser'])
@@ -141,7 +141,7 @@ class CompanySettingsTest extends TestCase
 
         // Role manager ditolak 403 Forbidden
         $this->actingAs($fixture['managerUser'])
-            ->get(route('settings.company.edit'))
+            ->get(route('settings.company'))
             ->assertForbidden();
 
         $this->actingAs($fixture['managerUser'])
@@ -205,7 +205,7 @@ class CompanySettingsTest extends TestCase
         $this->assertTrue((bool) $company->auto_assign_shift_on_clock_in);
 
         // 1. Halaman pengaturan perusahaan merender bilah pencarian, 4 kategori, dan toggle auto_assign_shift_on_clock_in
-        $pageResponse = $this->actingAs($fixture['adminUser'])->get(route('settings.company.edit'));
+        $pageResponse = $this->actingAs($fixture['adminUser'])->get(route('settings.company'));
         $pageResponse->assertOk()
             ->assertSee('id="company-settings-search"', false)
             ->assertSee('id="company-auto-assign-shift"', false)

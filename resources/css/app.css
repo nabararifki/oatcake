@@ -25,7 +25,6 @@
         /* Dynamic Spacing Density */
         --cell-px: 0.5rem;
         --cell-py: 0.375rem;
-        --row-h: 2rem;
 
         color-scheme: light;
     }
@@ -50,7 +49,6 @@
         :root {
             --cell-px: 0.75rem;
             --cell-py: 0.625rem;
-            --row-h: 2.75rem;
         }
     }
 
@@ -89,15 +87,6 @@
     }
     .o-inset-stage::-webkit-scrollbar-thumb:hover {
         background-color: rgb(var(--c-ink-faint));
-    }
-
-    /* Hide scrollbar for horizontal mobile action toolbars */
-    .no-scrollbar {
-        -ms-overflow-style: none;
-        scrollbar-width: none;
-    }
-    .no-scrollbar::-webkit-scrollbar {
-        display: none;
     }
 }
 

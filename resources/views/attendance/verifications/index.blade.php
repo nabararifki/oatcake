@@ -283,6 +283,12 @@
                     </tr>
                 @endforelse
             </x-ui.table>
+
+            @if ($attendances instanceof \Illuminate\Contracts\Pagination\Paginator && $attendances->hasPages())
+                <div class="pt-3 border-t border-line">
+                    {{ $attendances->links() }}
+                </div>
+            @endif
         </div>
 
         <!-- Modal Inspeksi Spasial & Bukti Swafoto (Leaflet.js) -->

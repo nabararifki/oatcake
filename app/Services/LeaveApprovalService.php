@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Jobs\SendWebPushNotificationJob;
 use App\Models\Employee;
 use App\Models\LeaveRequest;
 use App\Models\LeaveRequestApproval;
@@ -43,6 +44,11 @@ class LeaveApprovalService
         }
 
         $approvedRequest = DB::transaction(function () use ($leaveRequest, $actor, $notes): LeaveRequest {
+            Employee::withoutGlobalScopes()
+                ->whereKey($leaveRequest->employee_id)
+                ->lockForUpdate()
+                ->firstOrFail();
+
             $lockedRequest = LeaveRequest::withoutGlobalScopes()
                 ->whereKey($leaveRequest->id)
                 ->lockForUpdate()
@@ -75,9 +81,7 @@ class LeaveApprovalService
             ]);
 
             return $lockedRequest->refresh();
-        });
-
-        $this->dispatchTier1ApprovedNotifications($approvedRequest, $actor);
+        }, 3);
 
         ($this->auditTrailService ?? app(AuditTrailService::class))->record(
             'approved_tier1',
@@ -93,6 +97,8 @@ class LeaveApprovalService
             $actor,
             (int) $approvedRequest->company_id
         );
+
+        $this->dispatchTier1ApprovedNotifications($approvedRequest, $actor);
 
         return $approvedRequest;
     }
@@ -189,9 +195,7 @@ class LeaveApprovalService
             $this->recalculateOverlappingPendingRequests($lockedRequest, $lockedEmployee);
 
             return $lockedRequest->refresh();
-        });
-
-        $this->dispatchTier2ApprovedNotification($approvedRequest);
+        }, 3);
 
         ($this->auditTrailService ?? app(AuditTrailService::class))->record(
             'approved_tier2',
@@ -208,6 +212,8 @@ class LeaveApprovalService
             $actor,
             (int) $approvedRequest->company_id
         );
+
+        $this->dispatchTier2ApprovedNotification($approvedRequest);
 
         return $approvedRequest;
     }
@@ -236,7 +242,12 @@ class LeaveApprovalService
         }
 
         $previousStatus = $leaveRequest->status;
-        $rejectedRequest = DB::transaction(function () use ($leaveRequest, $actor, $cleanReason): LeaveRequest {
+        $rejectedRequest = DB::transaction(function () use ($leaveRequest, $actor, $cleanReason, &$previousStatus): LeaveRequest {
+            Employee::withoutGlobalScopes()
+                ->whereKey($leaveRequest->employee_id)
+                ->lockForUpdate()
+                ->firstOrFail();
+
             $lockedRequest = LeaveRequest::withoutGlobalScopes()
                 ->whereKey($leaveRequest->id)
                 ->lockForUpdate()
@@ -248,6 +259,13 @@ class LeaveApprovalService
                 ]);
             }
 
+            if ($lockedRequest->status === LeaveRequest::STATUS_PENDING_HR && ! $actor->isAdminOrAbove()) {
+                throw ValidationException::withMessages([
+                    'status' => [__('leave.err_invalid_status_for_reject')],
+                ]);
+            }
+
+            $previousStatus = $lockedRequest->status;
             $tier = $lockedRequest->status === LeaveRequest::STATUS_PENDING_MANAGER ? 1 : 2;
             $now = Carbon::now('Asia/Jakarta');
 
@@ -270,9 +288,7 @@ class LeaveApprovalService
             ]);
 
             return $lockedRequest->refresh();
-        });
-
-        $this->dispatchRejectedNotification($rejectedRequest, $cleanReason);
+        }, 3);
 
         ($this->auditTrailService ?? app(AuditTrailService::class))->record(
             'rejected',
@@ -288,6 +304,8 @@ class LeaveApprovalService
             $actor,
             (int) $rejectedRequest->company_id
         );
+
+        $this->dispatchRejectedNotification($rejectedRequest, $cleanReason);
 
         return $rejectedRequest;
     }
@@ -317,24 +335,28 @@ class LeaveApprovalService
                 'tier' => 1,
             ];
 
-            $admins = $push->resolveCompanyAdmins((int) $leaveRequest->company_id, $actor->id);
-            $push->notifyUsers(
-                $admins,
-                'leave_tier1_approved',
-                __('pwa.notif_leave_tier1_admin_title'),
-                __('pwa.notif_leave_tier1_admin_body', [
-                    'name' => $applicantName,
-                    'type' => $leaveTypeCode,
-                    'start' => $startStr,
-                    'end' => $endStr,
-                ]),
-                $actionUrl,
-                $meta
-            );
+            $adminIds = $push->resolveCompanyAdmins((int) $leaveRequest->company_id, $actor->id)
+                ->pluck('id')
+                ->all();
+            if ($adminIds !== []) {
+                SendWebPushNotificationJob::dispatch(
+                    $adminIds,
+                    'leave_tier1_approved',
+                    __('pwa.notif_leave_tier1_admin_title'),
+                    __('pwa.notif_leave_tier1_admin_body', [
+                        'name' => $applicantName,
+                        'type' => $leaveTypeCode,
+                        'start' => $startStr,
+                        'end' => $endStr,
+                    ]),
+                    $actionUrl,
+                    $meta
+                );
+            }
 
             if ($applicantUser !== null && $applicantUser->is_active && $applicantUser->id !== $actor->id) {
-                $push->notifyUser(
-                    $applicantUser,
+                SendWebPushNotificationJob::dispatch(
+                    [$applicantUser->id],
                     'leave_tier1_approved',
                     __('pwa.notif_leave_tier1_staff_title'),
                     __('pwa.notif_leave_tier1_staff_body', [
@@ -364,7 +386,6 @@ class LeaveApprovalService
                 return;
             }
 
-            $push = $this->webPushService ?? app(WebPushService::class);
             $leaveTypeCode = $leaveRequest->leaveType?->code ?? 'LEAVE';
             $startStr = $leaveRequest->start_date instanceof CarbonInterface
                 ? $leaveRequest->start_date->toDateString()
@@ -374,8 +395,8 @@ class LeaveApprovalService
                 : Carbon::parse($leaveRequest->end_date, 'Asia/Jakarta')->toDateString();
             $daysStr = (string) (int) $leaveRequest->total_days;
 
-            $push->notifyUser(
-                $applicantUser,
+            SendWebPushNotificationJob::dispatch(
+                [$applicantUser->id],
                 'leave_approved',
                 __('pwa.notif_leave_approved_title'),
                 __('pwa.notif_leave_approved_body', [
@@ -409,7 +430,6 @@ class LeaveApprovalService
                 return;
             }
 
-            $push = $this->webPushService ?? app(WebPushService::class);
             $leaveTypeCode = $leaveRequest->leaveType?->code ?? 'LEAVE';
             $startStr = $leaveRequest->start_date instanceof CarbonInterface
                 ? $leaveRequest->start_date->toDateString()
@@ -418,8 +438,8 @@ class LeaveApprovalService
                 ? $leaveRequest->end_date->toDateString()
                 : Carbon::parse($leaveRequest->end_date, 'Asia/Jakarta')->toDateString();
 
-            $push->notifyUser(
-                $applicantUser,
+            SendWebPushNotificationJob::dispatch(
+                [$applicantUser->id],
                 'leave_rejected',
                 __('pwa.notif_leave_rejected_title'),
                 __('pwa.notif_leave_rejected_body', [
@@ -479,6 +499,30 @@ class LeaveApprovalService
                 ->orderBy('id')
                 ->get();
 
+            $hasOtherLockedLeave = $daySchedules->contains(function (WorkSchedule $ws) use ($leaveRequest): bool {
+                if (! $ws->isLockedLeave()) {
+                    return false;
+                }
+
+                $meta = $ws->parseLeaveMetadata();
+                $existingReqId = $meta['leave_request_id'] ?? null;
+                if ($existingReqId !== null) {
+                    return (int) $existingReqId !== (int) $leaveRequest->id;
+                }
+
+                if (preg_match('/^LEAVE:[^:|]+:(\d+)/', (string) $ws->notes, $matches) === 1) {
+                    return (int) $matches[1] !== (int) $leaveRequest->id;
+                }
+
+                return true;
+            });
+
+            if ($hasOtherLockedLeave) {
+                $cursor->addDay();
+
+                continue;
+            }
+
             $isRegularPublishedOff = $daySchedules->isNotEmpty()
                 && $daySchedules->every(function (WorkSchedule $ws): bool {
                     return $ws->isOff() && $ws->status === 'published' && ! $ws->isLockedLeave();
@@ -533,34 +577,15 @@ class LeaveApprovalService
      */
     private function recalculateOverlappingPendingRequests(LeaveRequest $approvedRequest, Employee $employee): void
     {
-        if ($employee->department_id === null) {
-            return;
-        }
-
         $startStr = Carbon::parse($approvedRequest->start_date, 'Asia/Jakarta')->toDateString();
         $endStr = Carbon::parse($approvedRequest->end_date, 'Asia/Jakarta')->toDateString();
 
-        $competingRequests = LeaveRequest::withoutGlobalScopes()
-            ->with([
-                'employee' => fn ($q) => $q->withoutGlobalScopes()->with(['department' => fn ($dq) => $dq->withoutGlobalScopes()]),
-                'leaveType' => fn ($q) => $q->withoutGlobalScopes(),
-            ])
-            ->where('company_id', $approvedRequest->company_id)
-            ->where('id', '!=', $approvedRequest->id)
-            ->whereIn('status', [
-                LeaveRequest::STATUS_PENDING_MANAGER,
-                LeaveRequest::STATUS_PENDING_HR,
-            ])
-            ->whereDate('start_date', '<=', $endStr)
-            ->whereDate('end_date', '>=', $startStr)
-            ->whereHas('employee', function ($q) use ($employee): void {
-                $q->withoutGlobalScopes()->where('department_id', $employee->department_id);
-            })
-            ->get();
-
-        foreach ($competingRequests as $competing) {
-            $this->smartDecisionService->evaluateSingle($competing, true);
-        }
+        $this->smartDecisionService->recalculateOverlappingDepartmentRequests(
+            $employee,
+            $startStr,
+            $endStr,
+            (int) $approvedRequest->id
+        );
     }
 
     /**

@@ -11,6 +11,7 @@ use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Validation\Rule;
 use Illuminate\View\View;
@@ -337,13 +338,41 @@ class CompanySettingsController extends Controller
     }
 
     /**
+     * Resolve timezone-safe clock_in_at boundaries for a calendar date in the company's timezone.
+     *
+     * @return array{0: Carbon, 1: Carbon}
+     */
+    protected function resolveCompanyDayClockInBounds(string $dateString, int $companyId): array
+    {
+        $company = Company::withoutGlobalScopes()->find($companyId);
+        $timezone = $company?->timezone ?: 'Asia/Jakarta';
+
+        $startUtc = Carbon::parse($dateString, $timezone)->startOfDay()->utc();
+        $endUtc = Carbon::parse($dateString, $timezone)->endOfDay()->utc();
+
+        if (DB::connection()->getDriverName() === 'pgsql') {
+            return [$startUtc, $endUtc];
+        }
+
+        $appTimezone = (string) config('app.timezone', 'Asia/Jakarta');
+
+        return [
+            $startUtc->copy()->timezone($appTimezone),
+            $endUtc->copy()->timezone($appTimezone),
+        ];
+    }
+
+    /**
      * Synchronize same-day or existing uncommitted attendances when a holiday is added/updated.
      */
     protected function syncAttendancesForHolidayAdded(int $companyId, string $dateString, User $actor): void
     {
+        [$startBound, $endBound] = $this->resolveCompanyDayClockInBounds($dateString, $companyId);
+
         $attendances = Attendance::withoutGlobalScopes()
             ->where('company_id', $companyId)
-            ->whereDate('attendance_date', $dateString)
+            ->whereBetween('clock_in_at', [$startBound, $endBound])
+            ->where('status', '!=', 'rejected')
             ->get();
 
         $dpService = app(DpCommitService::class);
@@ -369,9 +398,11 @@ class CompanySettingsController extends Controller
             return;
         }
 
+        [$startBound, $endBound] = $this->resolveCompanyDayClockInBounds($dateString, $companyId);
+
         Attendance::withoutGlobalScopes()
             ->where('company_id', $companyId)
-            ->whereDate('attendance_date', $dateString)
+            ->whereBetween('clock_in_at', [$startBound, $endBound])
             ->whereNull('dp_committed_at')
             ->update(['is_provisional_dp' => false]);
     }
@@ -433,13 +464,5 @@ class CompanySettingsController extends Controller
         return redirect()
             ->route('settings.company')
             ->with('success', __('company.tenant_created_successfully'));
-    }
-
-    /**
-     * Alias for store() when registering a new tenant.
-     */
-    public function storeTenant(Request $request): RedirectResponse|JsonResponse
-    {
-        return $this->store($request);
     }
 }

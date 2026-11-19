@@ -211,11 +211,34 @@ class LeaveRequest extends Model
     }
 
     /**
+     * Determine whether the leave start date has already arrived or passed in Asia/Jakarta.
+     */
+    public function hasStartedOrPassed(?Carbon $referenceDate = null): bool
+    {
+        if ($this->start_date === null) {
+            return false;
+        }
+
+        $today = ($referenceDate ?? Carbon::today('Asia/Jakarta'))
+            ->copy()
+            ->timezone('Asia/Jakarta')
+            ->startOfDay();
+
+        $startDate = Carbon::parse($this->start_date, 'Asia/Jakarta')->startOfDay();
+
+        return $startDate->lessThanOrEqualTo($today);
+    }
+
+    /**
      * Determine whether the leave request can be cancelled by the applicant or admin
-     * (allowed for pending_manager, pending_hr, or approved).
+     * (allowed for pending_manager, pending_hr, or approved, strictly before start_date).
      */
     public function canBeCancelled(): bool
     {
+        if ($this->hasStartedOrPassed()) {
+            return false;
+        }
+
         return in_array($this->status, [
             self::STATUS_PENDING_MANAGER,
             self::STATUS_PENDING_HR,
@@ -225,10 +248,14 @@ class LeaveRequest extends Model
 
     /**
      * Determine whether the leave request can be edited by the applicant
-     * (allowed for pending_manager, pending_hr, or approved).
+     * (allowed for pending_manager, pending_hr, or approved, strictly before start_date).
      */
     public function canBeEdited(): bool
     {
+        if ($this->hasStartedOrPassed()) {
+            return false;
+        }
+
         return in_array($this->status, [
             self::STATUS_PENDING_MANAGER,
             self::STATUS_PENDING_HR,

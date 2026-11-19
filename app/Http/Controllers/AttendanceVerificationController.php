@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Jobs\SendWebPushNotificationJob;
 use App\Models\Attendance;
 use App\Models\Company;
 use App\Models\Department;
@@ -117,7 +118,7 @@ class AttendanceVerificationController extends Controller
             $query->whereDate('clock_in_at', '<=', $dateTo);
         }
 
-        $attendances = $query->orderByDesc('clock_in_at')->get();
+        $attendances = $query->orderByDesc('clock_in_at')->paginate(25)->withQueryString();
 
         return view('attendance.verifications.index', [
             'currentCompany' => $company,
@@ -155,8 +156,6 @@ class AttendanceVerificationController extends Controller
         $this->dpCommitService->attemptCommitFromAttendance($attendance, $request->user());
         $attendance->refresh();
 
-        $this->notifyAttendanceVerificationOutcome($attendance, true);
-
         app(AuditTrailService::class)->record(
             'verified',
             $attendance,
@@ -170,6 +169,8 @@ class AttendanceVerificationController extends Controller
             $request->user(),
             (int) $attendance->company_id
         );
+
+        $this->notifyAttendanceVerificationOutcome($attendance, true);
 
         if ($request->expectsJson()) {
             return response()->json([
@@ -210,8 +211,6 @@ class AttendanceVerificationController extends Controller
             'rejection_reason' => $validated['rejection_reason'],
         ]);
 
-        $this->notifyAttendanceVerificationOutcome($attendance, false, $validated['rejection_reason']);
-
         app(AuditTrailService::class)->record(
             'rejected',
             $attendance,
@@ -226,6 +225,8 @@ class AttendanceVerificationController extends Controller
             $request->user(),
             (int) $attendance->company_id
         );
+
+        $this->notifyAttendanceVerificationOutcome($attendance, false, $validated['rejection_reason']);
 
         if ($request->expectsJson()) {
             return response()->json([
@@ -290,10 +291,9 @@ class AttendanceVerificationController extends Controller
             }
 
             $location = $attendance->outside_location_name ?: '-';
-            $push = $this->webPushService ?? app(WebPushService::class);
 
-            $push->notifyUser(
-                $staffUser,
+            SendWebPushNotificationJob::dispatch(
+                [$staffUser->id],
                 'attendance_verified',
                 $approved
                     ? __('pwa.notif_attendance_approved_title')

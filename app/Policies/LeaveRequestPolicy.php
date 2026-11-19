@@ -47,6 +47,18 @@ class LeaveRequestPolicy
      */
     public function cancel(User $user, LeaveRequest $leaveRequest): bool
     {
+        return $this->canBeCancelled($user, $leaveRequest);
+    }
+
+    /**
+     * Determine whether the user can cancel the leave request (blocked if start_date <= today).
+     */
+    public function canBeCancelled(User $user, LeaveRequest $leaveRequest): bool
+    {
+        if ($leaveRequest->hasStartedOrPassed()) {
+            return false;
+        }
+
         return $this->cancelOwnership($user, $leaveRequest) && $leaveRequest->canBeCancelled();
     }
 
@@ -67,6 +79,18 @@ class LeaveRequestPolicy
      */
     public function update(User $user, LeaveRequest $leaveRequest): bool
     {
+        return $this->canBeEdited($user, $leaveRequest);
+    }
+
+    /**
+     * Determine whether the user can edit/update the leave request (blocked if start_date <= today).
+     */
+    public function canBeEdited(User $user, LeaveRequest $leaveRequest): bool
+    {
+        if ($leaveRequest->hasStartedOrPassed()) {
+            return false;
+        }
+
         return $this->updateOwnership($user, $leaveRequest) && $leaveRequest->canBeEdited();
     }
 

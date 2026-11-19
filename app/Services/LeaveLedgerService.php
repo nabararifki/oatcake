@@ -129,7 +129,7 @@ class LeaveLedgerService
                 'notes' => $meta['notes'] ?? null,
                 'created_by' => $meta['created_by'] ?? auth()->id(),
             ]);
-        });
+        }, 3);
     }
 
     /**
@@ -159,11 +159,19 @@ class LeaveLedgerService
             $currentBalance = $this->getBalance($lockedEmployee, $type);
             $balanceAfter = (int) ($currentBalance + $creditAmount);
 
+            $sourceBucket = ! empty($meta['source_entry_id'])
+                ? $this->resolveSourceBucket((int) $meta['source_entry_id'])
+                : null;
+
             $effectiveValidityMonths = $type->getEffectiveValidityMonths((int) $lockedEmployee->company_id);
 
             if (array_key_exists('expires_at', $meta)) {
                 $expiresAt = $meta['expires_at'] !== null
                     ? Carbon::parse($meta['expires_at'], 'Asia/Jakarta')->toDateString()
+                    : null;
+            } elseif ($sourceBucket !== null) {
+                $expiresAt = $sourceBucket->expires_at !== null
+                    ? Carbon::parse($sourceBucket->expires_at, 'Asia/Jakarta')->toDateString()
                     : null;
             } elseif ($effectiveValidityMonths !== null) {
                 $expiresAt = Carbon::now('Asia/Jakarta')
@@ -173,13 +181,16 @@ class LeaveLedgerService
                 $expiresAt = null;
             }
 
+            $todayStr = Carbon::today('Asia/Jakarta')->toDateString();
+            $isExpired = $expiresAt !== null && $expiresAt < $todayStr;
+
             return LeaveLedgerEntry::withoutGlobalScopes()->create([
                 'company_id' => $lockedEmployee->company_id,
                 'employee_id' => $lockedEmployee->id,
                 'leave_type_id' => $type->id,
                 'transaction_type' => LeaveLedgerEntry::TYPE_CREDIT,
                 'amount' => $creditAmount,
-                'remaining_amount' => $creditAmount,
+                'remaining_amount' => $isExpired ? 0 : $creditAmount,
                 'balance_after' => $balanceAfter,
                 'source_entry_id' => $meta['source_entry_id'] ?? null,
                 'reference_type' => $meta['reference_type'] ?? null,
@@ -189,7 +200,7 @@ class LeaveLedgerService
                 'notes' => $meta['notes'] ?? null,
                 'created_by' => $meta['created_by'] ?? auth()->id(),
             ]);
-        });
+        }, 3);
     }
 
     /**
@@ -295,7 +306,7 @@ class LeaveLedgerService
                 'notes' => $meta['notes'] ?? null,
                 'created_by' => $meta['created_by'] ?? auth()->id(),
             ]);
-        });
+        }, 3);
     }
 
     /**
@@ -337,13 +348,14 @@ class LeaveLedgerService
 
             if ($signedAmount > 0) {
                 $remainingAmount = $signedAmount;
+                $effectiveValidityMonths = $type->getEffectiveValidityMonths((int) $lockedEmployee->company_id);
                 if (array_key_exists('expires_at', $meta)) {
                     $expiresAt = $meta['expires_at'] !== null
                         ? Carbon::parse($meta['expires_at'], 'Asia/Jakarta')->toDateString()
                         : null;
-                } elseif ($type->validity_months !== null) {
+                } elseif ($effectiveValidityMonths !== null) {
                     $expiresAt = Carbon::now('Asia/Jakarta')
-                        ->addMonths((int) $type->validity_months)
+                        ->addMonths((int) $effectiveValidityMonths)
                         ->toDateString();
                 }
             } else {
@@ -370,6 +382,13 @@ class LeaveLedgerService
                     ->orderBy('id', 'asc')
                     ->lockForUpdate()
                     ->get();
+
+                $availableQuota = (int) round((float) $buckets->sum('remaining_amount'));
+                if ($availableQuota < $toDeplete) {
+                    throw new RuntimeException(
+                        "Insufficient non-expired leave quota for negative adjustment ({$signedAmount}) on {$type->code}. Active available: {$availableQuota}."
+                    );
+                }
 
                 foreach ($buckets as $bucket) {
                     if ($toDeplete <= 0) {
@@ -409,12 +428,13 @@ class LeaveLedgerService
                 'notes' => $meta['notes'] ?? null,
                 'created_by' => $meta['created_by'] ?? auth()->id(),
             ]);
-        });
+        }, 3);
     }
 
     /**
      * Record an append-only positive refund (reversal) entry when an approved leave request
-     * is cancelled or edited, restoring active bucket quota without mutating historical debit rows.
+     * is cancelled or edited, restoring active bucket quota without mutating historical debit rows
+     * and never granting a fresh expiry window if the original source bucket has already expired.
      */
     public function recordCancellationRefund(
         Employee $employee,
@@ -449,21 +469,13 @@ class LeaveLedgerService
 
             $expiresAt = null;
             $todayStr = Carbon::today('Asia/Jakarta')->toDateString();
+            $sourceBucket = $this->resolveSourceBucket($leaveRequest->ledger_entry_id);
 
-            if ($leaveRequest->ledger_entry_id !== null) {
-                $debitEntry = LeaveLedgerEntry::withoutGlobalScopes()->find($leaveRequest->ledger_entry_id);
-                if ($debitEntry !== null && $debitEntry->source_entry_id !== null) {
-                    $sourceBucket = LeaveLedgerEntry::withoutGlobalScopes()->find($debitEntry->source_entry_id);
-                    if ($sourceBucket !== null && $sourceBucket->expires_at !== null) {
-                        $sourceExpiry = Carbon::parse($sourceBucket->expires_at, 'Asia/Jakarta')->toDateString();
-                        if ($sourceExpiry >= $todayStr) {
-                            $expiresAt = $sourceExpiry;
-                        }
-                    }
-                }
-            }
-
-            if ($expiresAt === null) {
+            if ($sourceBucket !== null) {
+                $expiresAt = $sourceBucket->expires_at !== null
+                    ? Carbon::parse($sourceBucket->expires_at, 'Asia/Jakarta')->toDateString()
+                    : null;
+            } else {
                 $effectiveValidityMonths = $type->getEffectiveValidityMonths((int) $lockedEmployee->company_id);
                 if ($effectiveValidityMonths !== null) {
                     $expiresAt = Carbon::now('Asia/Jakarta')
@@ -472,13 +484,15 @@ class LeaveLedgerService
                 }
             }
 
+            $isExpired = $expiresAt !== null && $expiresAt < $todayStr;
+
             return LeaveLedgerEntry::withoutGlobalScopes()->create([
                 'company_id' => $lockedEmployee->company_id,
                 'employee_id' => $lockedEmployee->id,
                 'leave_type_id' => $type->id,
                 'transaction_type' => LeaveLedgerEntry::TYPE_CREDIT,
                 'amount' => $refundAmount,
-                'remaining_amount' => $refundAmount,
+                'remaining_amount' => $isExpired ? 0 : $refundAmount,
                 'balance_after' => $balanceAfter,
                 'source_entry_id' => $leaveRequest->ledger_entry_id,
                 'reference_type' => 'leave_cancellation',
@@ -488,6 +502,27 @@ class LeaveLedgerService
                 'notes' => $notes ?? "Refund pembatalan/perubahan cuti #{$leaveRequest->id}",
                 'created_by' => $actor?->id ?? auth()->id(),
             ]);
-        });
+        }, 3);
+    }
+
+    /**
+     * Resolve the underlying positive source bucket entry for a debit or credit source pointer.
+     */
+    private function resolveSourceBucket(?int $sourceEntryId): ?LeaveLedgerEntry
+    {
+        if ($sourceEntryId === null || $sourceEntryId <= 0) {
+            return null;
+        }
+
+        $entry = LeaveLedgerEntry::withoutGlobalScopes()->find($sourceEntryId);
+        if ($entry === null) {
+            return null;
+        }
+
+        if ($entry->transaction_type === LeaveLedgerEntry::TYPE_DEBIT && $entry->source_entry_id !== null) {
+            return LeaveLedgerEntry::withoutGlobalScopes()->find($entry->source_entry_id) ?? $entry;
+        }
+
+        return $entry;
     }
 }

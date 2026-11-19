@@ -1,7 +1,7 @@
-const CACHE_VERSION = 'oatcake-pwa-v1';
-const STATIC_CACHE = 'oatcake-static-v1';
-const PAGES_CACHE = 'oatcake-pages-v1';
-const DATA_CACHE = 'oatcake-data-v1';
+const CACHE_VERSION = 'oatcake-pwa-v2';
+const STATIC_CACHE = 'oatcake-static-v2';
+const PAGES_CACHE = 'oatcake-pages-v2';
+const DATA_CACHE = 'oatcake-data-v2';
 const ACTIVE_CACHES = [STATIC_CACHE, PAGES_CACHE, DATA_CACHE];
 
 const PRECACHE_URLS = [
@@ -24,6 +24,14 @@ const NETWORK_ONLY_PREFIXES = [
     '/auth/',
     '/leave/ledger/',
     '/notifications',
+    '/api',
+    '/sanctum',
+    '/audit-logs',
+    '/attendance/verifications',
+    '/settings',
+    '/company/settings',
+    '/admin/',
+    '/profile',
 ];
 
 const NETWORK_ONLY_PATTERNS = [
@@ -241,13 +249,15 @@ self.addEventListener('fetch', (event) => {
         event.respondWith(
             fetch(request)
                 .then(async (networkResponse) => {
-                    const finalPath = networkResponse.url ? new URL(networkResponse.url).pathname : url.pathname;
+                    const finalUrl = networkResponse.url ? new URL(networkResponse.url) : url;
+                    const finalPath = finalUrl.pathname;
                     if (
                         networkResponse &&
                         networkResponse.status === 200 &&
                         networkResponse.type === 'basic' &&
                         finalPath !== '/login' &&
-                        finalPath !== '/offline'
+                        finalPath !== '/offline' &&
+                        !isSensitiveOrPrivateRequest(finalUrl)
                     ) {
                         const cache = await caches.open(PAGES_CACHE);
                         await cache.put(request, networkResponse.clone());

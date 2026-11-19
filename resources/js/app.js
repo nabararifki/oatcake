@@ -55,17 +55,10 @@ Alpine.store('theme', {
 
 Alpine.store('sidebar', {
     collapsed: document.cookie.includes('sidebar=collapsed'),
-    mobileOpen: false,
     toggle() {
         this.collapsed = !this.collapsed;
         document.documentElement.dataset.sidebar = this.collapsed ? 'collapsed' : 'expanded';
         document.cookie = `sidebar=${this.collapsed ? 'collapsed' : 'expanded'}; path=/; max-age=31536000; SameSite=Lax`;
-    },
-    toggleMobile() {
-        this.mobileOpen = !this.mobileOpen;
-    },
-    closeMobile() {
-        this.mobileOpen = false;
     }
 });
 

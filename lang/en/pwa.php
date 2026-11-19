@@ -2,9 +2,7 @@
 
 return [
     'install_app'               => 'Install OATCAKE App',
-    'install_app_short'         => 'Install App',
     'install_subtitle'          => 'Instant access from your device home screen',
-    'installed_status'          => 'App Installed',
     'install_guide_title'       => 'How to Install OATCAKE App',
     'install_guide_ios_desc'    => 'Tap the Share icon and select Add to Home Screen.',
     'install_guide_step_1'      => 'Open the Share menu (square icon with upward arrow) in Safari or your browser menu.',
@@ -54,7 +52,6 @@ return [
     'not_synced_yet'            => 'No offline snapshot stored on this device yet.',
     'not_synced_hint'           => 'Sign in to your account while online to automatically cache your next 14 days of work schedules.',
     'snapshot_staff_label'      => 'Staff Profile',
-    'snapshot_department_label' => 'Department',
     'snapshot_al_balance'       => 'Annual Leave Balance (AL)',
     'snapshot_dp_balance'       => 'Day Payment Balance (DP)',
     'snapshot_days_unit'        => 'days',
@@ -83,9 +80,6 @@ return [
     'notification_unread_badge'      => 'Unread',
     'push_test_title'                => 'OATCAKE Test Notification',
     'push_test_body'                 => 'Device Web Push and Notification Center are working properly for your account.',
-    'push_subscribed_toast'          => 'Device push notifications enabled.',
-    'push_unsubscribed_toast'        => 'Device push notifications disabled.',
-    'push_test_sent_toast'           => 'Test notification sent.',
 
     'notif_leave_submitted_title'       => 'New Leave Request',
     'notif_leave_submitted_body'        => ':name (:type) submitted a leave request for :start to :end (:days days).',

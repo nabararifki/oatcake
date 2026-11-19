@@ -35,19 +35,13 @@ class LeaveLedgerEntry extends Model
     ];
 
     /**
-     * Core financial/audit columns that must never be modified after creation.
+     * Columns that are permitted to mutate after creation (FIFO remaining_amount depletion only).
      *
      * @var list<string>
      */
-    public const IMMUTABLE_COLUMNS = [
-        'company_id',
-        'employee_id',
-        'leave_type_id',
-        'transaction_type',
-        'amount',
-        'balance_after',
-        'reference_type',
-        'reference_id',
+    public const MUTABLE_COLUMNS = [
+        'remaining_amount',
+        'updated_at',
     ];
 
     /**
@@ -99,10 +93,10 @@ class LeaveLedgerEntry extends Model
         });
 
         static::updating(function (self $entry): void {
-            foreach (self::IMMUTABLE_COLUMNS as $column) {
-                if ($entry->isDirty($column)) {
-                    throw new LogicException('Leave ledger entries are strictly immutable; only remaining_amount may be updated during FIFO depletion.');
-                }
+            $disallowed = array_diff(array_keys($entry->getDirty()), self::MUTABLE_COLUMNS);
+
+            if ($disallowed !== []) {
+                throw new LogicException('Leave ledger entries are strictly immutable; only remaining_amount may be updated during FIFO depletion.');
             }
         });
     }

@@ -91,15 +91,15 @@ class PwaImplementationTest extends TestCase
         $swContent = File::get($swPath);
 
         // Penamaan cache berversi
-        $this->assertStringContainsString('oatcake-static-v1', $swContent);
-        $this->assertStringContainsString('oatcake-pages-v1', $swContent);
-        $this->assertStringContainsString('oatcake-data-v1', $swContent);
+        $this->assertStringContainsString('oatcake-static-v2', $swContent);
+        $this->assertStringContainsString('oatcake-pages-v2', $swContent);
+        $this->assertStringContainsString('oatcake-data-v2', $swContent);
 
         // Siklus hidup install & activate
         $this->assertStringContainsString('skipWaiting', $swContent);
         $this->assertStringContainsString('clients.claim', $swContent);
 
-        // Strict Network-Only untuk mutasi non-GET dan rute privat / auth / media bukti
+        // Strict Network-Only untuk mutasi non-GET dan rute privat / auth / media bukti / admin
         $this->assertStringContainsString("request.method !== 'GET'", $swContent);
         $this->assertStringContainsString('/login', $swContent);
         $this->assertStringContainsString('/logout', $swContent);
@@ -107,6 +107,12 @@ class PwaImplementationTest extends TestCase
         $this->assertStringContainsString('/attachment', $swContent);
         $this->assertStringContainsString('/smart-analysis', $swContent);
         $this->assertStringContainsString('/leave/ledger/', $swContent);
+        $this->assertStringContainsString('/api', $swContent);
+        $this->assertStringContainsString('/sanctum', $swContent);
+        $this->assertStringContainsString('/audit-logs', $swContent);
+        $this->assertStringContainsString('/attendance/verifications', $swContent);
+        $this->assertStringContainsString('/settings', $swContent);
+        $this->assertStringContainsString('/profile', $swContent);
 
         // Pembersihan cache saat logout
         $this->assertStringContainsString('CLEAR_USER_CACHE', $swContent);

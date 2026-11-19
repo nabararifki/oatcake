@@ -13,6 +13,10 @@ trait RecordsAuditTrail
     protected static function bootRecordsAuditTrail(): void
     {
         static::created(function (Model $model): void {
+            if (AuditTrailService::isSuppressed()) {
+                return;
+            }
+
             $service = app(AuditTrailService::class);
             $newValues = $service->sanitizePayload($model->getAttributes(), true);
 
@@ -25,6 +29,10 @@ trait RecordsAuditTrail
         });
 
         static::updated(function (Model $model): void {
+            if (AuditTrailService::isSuppressed()) {
+                return;
+            }
+
             $changes = $model->getChanges();
             if ($changes === []) {
                 return;
@@ -69,6 +77,10 @@ trait RecordsAuditTrail
         });
 
         static::deleted(function (Model $model): void {
+            if (AuditTrailService::isSuppressed()) {
+                return;
+            }
+
             $service = app(AuditTrailService::class);
             $oldValues = $service->sanitizePayload($model->getOriginal(), true);
 

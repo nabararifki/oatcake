@@ -33,6 +33,23 @@ class StaffProvisioningController extends Controller
     }
 
     /**
+     * Enforce strict hierarchical rank dominance before mutating/deleting a target staff member.
+     */
+    protected function ensureActorOutranksTarget(User $actor, Employee $employee): void
+    {
+        $isSelf = $employee->user_id !== null && (int) $actor->id === (int) $employee->user_id;
+        $targetUser = $employee->relationLoaded('user') ? $employee->user : $employee->user()->first();
+        $targetRank = User::rankForRole($targetUser?->role ?? 'user');
+        $actorRank = $actor->roleRank();
+
+        $allowed = $isSelf ? ($actorRank >= $targetRank) : ($actorRank > $targetRank);
+
+        if (! $allowed) {
+            abort(403, 'Anda tidak memiliki wewenang untuk mengubah atau menghapus pengguna dengan peran setara atau lebih tinggi.');
+        }
+    }
+
+    /**
      * Display a listing of active company staff.
      */
     public function index(Request $request): View
@@ -142,6 +159,7 @@ class StaffProvisioningController extends Controller
         $actor = $request->user();
         $this->ensureAuthorized($actor);
         $this->authorize('update', $employee);
+        $this->ensureActorOutranksTarget($actor, $employee);
 
         $actor->loadMissing(['company', 'employee.department']);
         $employee->load([
@@ -189,7 +207,9 @@ class StaffProvisioningController extends Controller
      */
     public function update(UpdateEmployeeRequest $request, Employee $employee): RedirectResponse
     {
+        $actor = $request->user();
         $this->authorize('update', $employee);
+        $this->ensureActorOutranksTarget($actor, $employee);
         $validated = $request->validated();
 
         DB::transaction(function () use ($employee, $validated): void {
@@ -236,6 +256,7 @@ class StaffProvisioningController extends Controller
         $actor = $request->user();
         $this->ensureAuthorized($actor);
         $this->authorize('delete', $employee);
+        $this->ensureActorOutranksTarget($actor, $employee);
 
         if ((int) $employee->user_id === (int) auth()->id()) {
             abort(422, __('staff.delete_self_error'));

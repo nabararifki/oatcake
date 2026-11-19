@@ -12,6 +12,10 @@ class DepartmentPolicy
      */
     public function viewAny(User $user): bool
     {
+        if (! $user->is_active) {
+            return false;
+        }
+
         return $user->isSuperAdmin()
             || ($user->company_id !== null && $user->isManagerOrAbove());
     }
@@ -21,10 +25,17 @@ class DepartmentPolicy
      */
     public function view(User $user, Department $department): bool
     {
-        return $user->isSuperAdmin()
-            || ($user->company_id !== null
-                && (int) $user->company_id === (int) $department->company_id
-                && $user->isManagerOrAbove());
+        if (! $user->is_active) {
+            return false;
+        }
+
+        if ($user->isSuperAdmin()) {
+            return $this->matchesSuperAdminTenant($department->company_id);
+        }
+
+        return $user->company_id !== null
+            && (int) $user->company_id === (int) $department->company_id
+            && $user->isManagerOrAbove();
     }
 
     /**
@@ -32,6 +43,10 @@ class DepartmentPolicy
      */
     public function create(User $user): bool
     {
+        if (! $user->is_active) {
+            return false;
+        }
+
         return $user->isSuperAdmin()
             || ($user->company_id !== null
                 && ($user->isAdmin() || $user->isSuperUser()));
@@ -42,10 +57,17 @@ class DepartmentPolicy
      */
     public function update(User $user, Department $department): bool
     {
-        return $user->isSuperAdmin()
-            || ($user->company_id !== null
-                && (int) $user->company_id === (int) $department->company_id
-                && ($user->isAdmin() || $user->isSuperUser()));
+        if (! $user->is_active) {
+            return false;
+        }
+
+        if ($user->isSuperAdmin()) {
+            return $this->matchesSuperAdminTenant($department->company_id);
+        }
+
+        return $user->company_id !== null
+            && (int) $user->company_id === (int) $department->company_id
+            && ($user->isAdmin() || $user->isSuperUser());
     }
 
     /**
@@ -53,9 +75,18 @@ class DepartmentPolicy
      */
     public function delete(User $user, Department $department): bool
     {
-        return $user->isSuperAdmin()
-            || ($user->company_id !== null
-                && (int) $user->company_id === (int) $department->company_id
-                && ($user->isAdmin() || $user->isSuperUser()));
+        return $this->update($user, $department);
+    }
+
+    /**
+     * Check Super Admin tenant context when an active company switch is present.
+     */
+    private function matchesSuperAdminTenant(?int $targetCompanyId): bool
+    {
+        if (session()->has('active_company_id') && session('active_company_id') !== null) {
+            return (int) $targetCompanyId === (int) session('active_company_id');
+        }
+
+        return true;
     }
 }

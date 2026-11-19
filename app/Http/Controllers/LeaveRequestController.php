@@ -17,6 +17,7 @@ use App\Services\SmartDecisionService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\ValidationException;
@@ -250,12 +251,15 @@ class LeaveRequestController extends Controller
         // Staff Name / Position Search (strict ZERO NIK)
         $filterSearch = trim((string) $request->input('search', ''));
         if ($canSearchStaff && $filterSearch !== '') {
-            $query->whereHas('employee', function ($eq) use ($filterSearch): void {
-                $eq->withoutGlobalScopes()->where(function ($sub) use ($filterSearch): void {
-                    $sub->where('position', 'like', "%{$filterSearch}%")
-                        ->orWhereHas('user', function ($uq) use ($filterSearch): void {
-                            $uq->where('name', 'like', "%{$filterSearch}%")
-                                ->orWhere('username', 'like', "%{$filterSearch}%");
+            $likeOperator = DB::connection()->getDriverName() === 'pgsql' ? 'ilike' : 'like';
+            $pattern = "%{$filterSearch}%";
+
+            $query->whereHas('employee', function ($eq) use ($likeOperator, $pattern): void {
+                $eq->withoutGlobalScopes()->where(function ($sub) use ($likeOperator, $pattern): void {
+                    $sub->where('position', $likeOperator, $pattern)
+                        ->orWhereHas('user', function ($uq) use ($likeOperator, $pattern): void {
+                            $uq->where('name', $likeOperator, $pattern)
+                                ->orWhere('username', $likeOperator, $pattern);
                         });
                 });
             });
@@ -308,6 +312,42 @@ class LeaveRequestController extends Controller
             }
         }
 
+        $isSuperAdmin = $user->role === 'super_admin';
+        $activeStaffCountByDept = $isSuperAdmin
+            ? $ledgerEmployees->groupBy('department_id')->map->count()->all()
+            : [];
+
+        $debugDepartmentsList = $isSuperAdmin
+            ? $departments->map(fn (Department $dept): array => [
+                'id' => $dept->id,
+                'code' => $dept->code,
+                'name' => $dept->name,
+                'min_staff_per_shift' => max(1, (int) ($dept->min_staff_per_shift ?? 1)),
+                'total_department_staff' => max(1, (int) ($activeStaffCountByDept[$dept->id] ?? 1)),
+            ])->values()->all()
+            : [];
+
+        $debugRequestsList = $isSuperAdmin
+            ? $leaveRequests->map(function (LeaveRequest $r) use ($activeStaffCountByDept): array {
+                $deptId = $r->employee?->department_id;
+                $dept = $r->employee?->department;
+
+                return [
+                    'id' => $r->id,
+                    'employee_name' => $r->employee?->user?->name ?? 'Karyawan',
+                    'department_id' => $deptId,
+                    'department_code' => $dept?->code ?? '-',
+                    'department_name' => $dept?->name ?? '-',
+                    'min_staff_per_shift' => max(1, (int) ($dept?->min_staff_per_shift ?? 2)),
+                    'total_department_staff' => max(1, (int) ($activeStaffCountByDept[$deptId] ?? 1)),
+                    'leave_type_code' => $r->leaveType?->code ?? '-',
+                    'start_date' => $r->start_date?->toDateString(),
+                    'total_days' => (int) $r->total_days,
+                    'status' => $r->status,
+                ];
+            })->values()->all()
+            : [];
+
         return view('leave.index', [
             'currentCompany' => $company,
             'employee' => $employee,
@@ -325,16 +365,9 @@ class LeaveRequestController extends Controller
             'isAdminTier' => $isAdminTier,
             'canManageSmartWeights' => $canManageSmartWeights,
             'canManageLeaveTypeSettings' => $canManageLeaveTypeSettings,
-            'canDebugSmart' => $user->role === 'super_admin',
-            'debugRequestsList' => $leaveRequests->map(fn (LeaveRequest $r): array => [
-                'id' => $r->id,
-                'employee_name' => $r->employee?->name ?? 'Karyawan',
-                'department_name' => $r->employee?->department?->name ?? '-',
-                'leave_type_code' => $r->leaveType?->code ?? '-',
-                'start_date' => $r->start_date?->toDateString(),
-                'total_days' => (int) $r->total_days,
-                'status' => $r->status,
-            ])->values()->all(),
+            'canDebugSmart' => $isSuperAdmin,
+            'debugDepartmentsList' => $debugDepartmentsList,
+            'debugRequestsList' => $debugRequestsList,
             'smartWeightsByDept' => $smartWeightsByDept,
             'criteriaDefinitions' => SmartDecisionService::CRITERIA_DEFINITIONS,
             'filterStatus' => $filterStatus,
@@ -739,7 +772,12 @@ class LeaveRequestController extends Controller
         if (! empty($validated['leave_type_id'])) {
             $ltId = $validated['leave_type_id'];
             $leaveType = is_numeric($ltId)
-                ? LeaveType::withoutGlobalScopes()->find((int) $ltId)
+                ? LeaveType::withoutGlobalScopes()
+                    ->where(function ($q) use ($targetEmployee): void {
+                        $q->whereNull('company_id')
+                            ->orWhere('company_id', (int) $targetEmployee->company_id);
+                    })
+                    ->find((int) $ltId)
                 : LeaveType::findByCode((string) $ltId, (int) $targetEmployee->company_id);
         } elseif (! empty($validated['leave_type_code'])) {
             $leaveType = LeaveType::findByCode((string) $validated['leave_type_code'], (int) $targetEmployee->company_id);

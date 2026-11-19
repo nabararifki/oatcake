@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Jobs\SendWebPushNotificationJob;
 use App\Models\Company;
 use App\Models\Department;
 use App\Models\Employee;
@@ -129,6 +130,20 @@ class RosterController extends Controller
         if ($hasApprovedLeave) {
             throw ValidationException::withMessages([
                 'schedule_date' => [__('roster.err_employee_on_approved_leave')],
+            ]);
+        }
+    }
+
+    /**
+     * Reject manual schedule or shift payloads attempting to spoof the reserved LEAVE: system prefix.
+     *
+     * @throws ValidationException
+     */
+    protected function rejectReservedLeaveNotes(?string $value, string $field = 'notes'): void
+    {
+        if ($value !== null && preg_match('/^\s*LEAVE:/i', $value) === 1) {
+            throw ValidationException::withMessages([
+                $field => ['Label sistem LEAVE: hanya dikelola otomatis oleh alur persetujuan cuti.'],
             ]);
         }
     }
@@ -589,6 +604,9 @@ class RosterController extends Controller
                 ->firstOrFail();
         }
 
+        // Reject manual spoofing of the reserved LEAVE: system prefix
+        $this->rejectReservedLeaveNotes($validated['notes'] ?? null, 'notes');
+
         // Strict Leave Immutability Guard: block any schedule mutation on approved leave dates
         $this->ensureNotLockedByApprovedLeave($employee, $validated['schedule_date'], $existingSchedule);
 
@@ -976,53 +994,40 @@ class RosterController extends Controller
             $baseQuery->byDepartment($departmentId);
         }
 
-        $affectedEmployeeIds = (clone $baseQuery)
-            ->where('status', 'draft')
-            ->distinct()
-            ->pluck('employee_id');
+        $affectedEmployeeIds = collect();
+        $deletedCount = 0;
+        $publishedCount = 0;
 
-        $deletedCount = (clone $baseQuery)
-            ->where('status', 'pending_delete')
-            ->delete();
+        DB::transaction(function () use (
+            $baseQuery,
+            &$affectedEmployeeIds,
+            &$deletedCount,
+            &$publishedCount
+        ): void {
+            $nonLeaveScope = static function ($q): void {
+                $q->whereNull('notes')->orWhere('notes', 'not like', 'LEAVE:%');
+            };
 
-        $publishedCount = (clone $baseQuery)
-            ->where('status', 'draft')
-            ->update([
-                'status' => 'published',
-                'published_start_time' => null,
-                'published_end_time' => null,
-            ]);
+            $affectedEmployeeIds = (clone $baseQuery)
+                ->where('status', 'draft')
+                ->where($nonLeaveScope)
+                ->distinct()
+                ->pluck('employee_id');
 
-        if ($publishedCount > 0 && $affectedEmployeeIds->isNotEmpty()) {
-            try {
-                $recipients = User::query()
-                    ->where('company_id', $company->id)
-                    ->where('is_active', true)
-                    ->whereHas('employee', function ($q) use ($company, $affectedEmployeeIds): void {
-                        $q->withoutGlobalScopes()
-                            ->where('company_id', $company->id)
-                            ->whereIn('id', $affectedEmployeeIds);
-                    })
-                    ->get();
+            $deletedCount = (clone $baseQuery)
+                ->where('status', 'pending_delete')
+                ->where($nonLeaveScope)
+                ->delete();
 
-                $periodLabel = $startOfMonth->copy()->locale(app()->getLocale())->translatedFormat('F Y');
-                $push = $this->webPushService ?? app(WebPushService::class);
-                $push->notifyUsers(
-                    $recipients,
-                    'roster_published',
-                    __('pwa.notif_roster_published_title'),
-                    __('pwa.notif_roster_published_body', ['period' => $periodLabel]),
-                    route('roster.index', [], false),
-                    [
-                        'company_id' => $company->id,
-                        'month' => $month,
-                        'year' => $year,
-                    ]
-                );
-            } catch (Throwable $e) {
-                Log::warning('Failed to dispatch roster published notifications: '.$e->getMessage());
-            }
-        }
+            $publishedCount = (clone $baseQuery)
+                ->where('status', 'draft')
+                ->where($nonLeaveScope)
+                ->update([
+                    'status' => 'published',
+                    'published_start_time' => null,
+                    'published_end_time' => null,
+                ]);
+        }, 3);
 
         $totalAffected = $publishedCount + $deletedCount;
 
@@ -1043,6 +1048,39 @@ class RosterController extends Controller
                 $actor,
                 (int) $company->id
             );
+        }
+
+        if ($publishedCount > 0 && $affectedEmployeeIds->isNotEmpty()) {
+            try {
+                $recipientIds = User::query()
+                    ->where('company_id', $company->id)
+                    ->where('is_active', true)
+                    ->whereHas('employee', function ($q) use ($company, $affectedEmployeeIds): void {
+                        $q->withoutGlobalScopes()
+                            ->where('company_id', $company->id)
+                            ->whereIn('id', $affectedEmployeeIds);
+                    })
+                    ->pluck('id')
+                    ->all();
+
+                if ($recipientIds !== []) {
+                    $periodLabel = $startOfMonth->copy()->locale(app()->getLocale())->translatedFormat('F Y');
+                    SendWebPushNotificationJob::dispatch(
+                        $recipientIds,
+                        'roster_published',
+                        __('pwa.notif_roster_published_title'),
+                        __('pwa.notif_roster_published_body', ['period' => $periodLabel]),
+                        route('roster.index', [], false),
+                        [
+                            'company_id' => $company->id,
+                            'month' => $month,
+                            'year' => $year,
+                        ]
+                    );
+                }
+            } catch (Throwable $e) {
+                Log::warning('Failed to dispatch roster published notifications: '.$e->getMessage());
+            }
         }
 
         return response()->json([
@@ -1145,7 +1183,10 @@ class RosterController extends Controller
         DB::transaction(function () use ($company, $startDate, $endDate, $departmentId, &$deletedDraftsCount, &$restoredCount): void {
             $baseQuery = WorkSchedule::withoutGlobalScopes()
                 ->where('company_id', $company->id)
-                ->whereBetween('schedule_date', [$startDate, $endDate]);
+                ->whereBetween('schedule_date', [$startDate, $endDate])
+                ->where(function ($q): void {
+                    $q->whereNull('notes')->orWhere('notes', 'not like', 'LEAVE:%');
+                });
 
             if ($departmentId) {
                 $baseQuery->byDepartment($departmentId);
@@ -1285,6 +1326,13 @@ class RosterController extends Controller
             abort(403, 'Akses lintas perusahaan (cross-tenant) pada master shift ditolak.');
         }
 
+        if ($request->has('notes')) {
+            $this->rejectReservedLeaveNotes(
+                is_string($request->input('notes')) ? $request->input('notes') : null,
+                'notes'
+            );
+        }
+
         $validated = $request->validate([
             'name' => ['sometimes', 'required', 'string', 'max:100'],
             'start_time' => ['required', 'string', 'regex:/^\d{2}:\d{2}(:\d{2})?$/'],
@@ -1292,6 +1340,10 @@ class RosterController extends Controller
             'grace_period_minutes' => ['nullable', 'integer', 'min:0', 'max:120'],
             'color_badge' => ['nullable', 'string', 'max:25'],
         ]);
+
+        if (isset($validated['name'])) {
+            $this->rejectReservedLeaveNotes($validated['name'], 'name');
+        }
 
         $shiftModel->fill([
             'name' => $validated['name'] ?? $shiftModel->name,

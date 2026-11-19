@@ -4,7 +4,12 @@
 
 # OATCAKE
 
-**Hospitality HRIS & 24-Hour Roster Scheduling Platform**
+![Version](https://img.shields.io/badge/version-v1.0.0--rc%20(Release%20Candidate)-004F9F?style=flat-square)
+![Laravel](https://img.shields.io/badge/Laravel-12-FF2D20?style=flat-square)
+![PHP](https://img.shields.io/badge/PHP-8.4%2B-777BB4?style=flat-square)
+![PostgreSQL](https://img.shields.io/badge/PostgreSQL-18-336791?style=flat-square)
+
+**Hospitality HRIS & 24-Hour Roster Scheduling Platform — `v1.0.0 Release Candidate`**
 
 OATCAKE adalah platform manajemen SDM dan penjadwalan rotasi kerja 24 jam non-stop yang dirancang khusus untuk operasional industri perhotelan dan resort berskala enterprise.
 
@@ -19,7 +24,8 @@ OATCAKE adalah platform manajemen SDM dan penjadwalan rotasi kerja 24 jam non-st
 - **SPK Metode SMART & Mode Debug Simulator**: Mesin pendukung keputusan berbasis 5 kriteria telemetri kuantitatif (`C1`–`C5`), pembobotan dinamis per departemen, evaluasi mandiri (**Mode B**) dan pemeringkatan kandidat bentrok (**Mode A**), dilengkapi konsol **Mode Debug & What-If Simulator** khusus *Super Admin*.
 - **Progressive Web App (PWA) & Web Push Real-Time (VAPID)**: Dapat diinstal sebagai aplikasi mandiri lengkap dengan mekanisme panduan HTTP non-HTTPS, *Service Worker* multi-tier beserta *Offline Snapshot* jadwal 14 hari & saldo cuti, serta pusat notifikasi real-time terenkripsi RFC 8291/8292 melalui PHP OpenSSL P-256 tanpa dependensi pihak ketiga eksternal.
 - **Immutable JSONB Audit Trail Console**: Pencatatan otomatis mutasi data inti secara *append-only* (menolak ubah/hapus via `LogicException`) ke PostgreSQL `JSONB` terindeks `GIN`, dilengkapi sanitasi Zero-NIK, penelusuran forensik `@>`, dan tampilan perbandingan perubahan (*side-by-side diff*).
-- **Optimasi Co-Hosting, Pengaturan Terkategorisasi & Dwi-Bahasa**: Pemuatan halaman utama $\le 15$ kueri melalui indeks komposit PostgreSQL dan *eager loading*, konsol pengaturan perusahaan (`/settings/company`) dengan pencarian real-time lintas 4 kategori, perintah diagnostik `oatcake:optimize-cohosting` & `oatcake:prepare-uat`, serta antarmuka dwi-bahasa (ID/EN) dengan paritas kamus 100%.
+- **Multi-Tenant Backup & Restore Portabel (`v1.0.0-rc`)**: Pencadangan dan pemulihan arsip `.zip` terisolasi per perusahaan menggunakan ekspor streaming JSONL $O(1)$, `manifest.json` bervalidasi `SHA-256`, impor *Topological DAG* dengan pemetaan ulang Foreign Key dinamis, supresi log audit selama pemulihan, dan *Atomic Storage Swap* dengan akses eksklusif `super_user`/`super_admin` serta modal konfirmasi ganda.
+- **Optimasi Co-Hosting, Pengaturan Terkategorisasi & Dwi-Bahasa Penuh**: Pemuatan halaman utama $\le 15$ kueri melalui indeks komposit PostgreSQL 18 (termasuk GIN `jsonb_path_ops`) dan *eager loading*, konsol pengaturan perusahaan (`/settings/company`) dengan pencarian real-time lintas 5 kategori, perintah diagnostik `oatcake:optimize-cohosting` & `oatcake:prepare-uat`, serta lokalisasi dwi-bahasa penuh (ID/EN) hingga pesan validasi, paginasi, dan Breeze Bahasa Indonesia dengan paritas 100%.
 
 ---
 
@@ -81,7 +87,7 @@ OATCAKE adalah platform manajemen SDM dan penjadwalan rotasi kerja 24 jam non-st
 
 ## Pengujian
 
-Jalankan seluruh rangkaian pengujian otomatis (**227 pengujian / 6.249 asersi**):
+Jalankan seluruh rangkaian pengujian otomatis (**247 pengujian / 7.126 asersi**):
 
 ```bash
 php artisan test
@@ -101,8 +107,8 @@ php artisan test --filter "AttendanceGeofenceTest|UniversalSelfieTest|Attendance
 # Manajemen Cuti, Ledger FIFO, Persetujuan 2-Tier & SPK SMART (+ Mode Debug)
 php artisan test --filter "LeaveLedgerTest|LeaveRequestTest|LeaveApprovalWorkflowTest|SmartDecisionEngineTest"
 
-# PWA, Web Push VAPID, Immutable JSONB Audit Trail, Stress Test & UAT Mitra
-php artisan test --filter "PwaImplementationTest|WebPushNotificationTest|AuditTrailLoggingTest|StressAndResourceOptimizationTest|UatMitraAcceptanceTest"
+# PWA, Web Push VAPID, Immutable JSONB Audit Trail, Backup/Restore & Remediasi v1.0.0-rc
+php artisan test --filter "PwaImplementationTest|WebPushNotificationTest|AuditTrailLoggingTest|CompanyBackupRestoreTest|RemediationBatch1Test|RemediationBatch2Test|RemediationBatch3Test|StressAndResourceOptimizationTest|UatMitraAcceptanceTest"
 ```
 
 ---

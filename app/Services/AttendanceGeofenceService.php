@@ -240,6 +240,43 @@ class AttendanceGeofenceService
         $nowWib = ($referenceTime ?? Carbon::now('Asia/Jakarta'))->copy()->timezone('Asia/Jakarta');
         $todayDate = $nowWib->toDateString();
 
+        $openAttendance = Attendance::withoutGlobalScopes()
+            ->with([
+                'workSchedule' => fn ($q) => $q->withoutGlobalScopes()->with([
+                    'shift' => fn ($sq) => $sq->withoutGlobalScopes(),
+                    'dutyTag' => fn ($tq) => $tq->withoutGlobalScopes(),
+                ]),
+            ])
+            ->where('employee_id', $employee->id)
+            ->where('status', '!=', 'rejected')
+            ->whereNotNull('work_schedule_id')
+            ->whereNotNull('clock_in_at')
+            ->whereNull('clock_out_at')
+            ->latest('clock_in_at')
+            ->first();
+
+        if ($openAttendance !== null && $openAttendance->workSchedule !== null) {
+            return $openAttendance->workSchedule;
+        }
+
+        $completedScheduleIds = Attendance::withoutGlobalScopes()
+            ->where('employee_id', $employee->id)
+            ->where('status', '!=', 'rejected')
+            ->whereNotNull('work_schedule_id')
+            ->whereNotNull('clock_out_at')
+            ->pluck('work_schedule_id')
+            ->map(fn ($id) => (int) $id)
+            ->all();
+
+        $activeCrossDaySchedule = $this->resolveActivePreviousDayCrossDaySchedule(
+            $employee,
+            $nowWib,
+            $completedScheduleIds
+        );
+        if ($activeCrossDaySchedule !== null) {
+            return $activeCrossDaySchedule;
+        }
+
         $schedules = WorkSchedule::withoutGlobalScopes()
             ->with([
                 'shift' => fn ($q) => $q->withoutGlobalScopes(),
@@ -268,29 +305,6 @@ class AttendanceGeofenceService
             return null;
         }
 
-        $openAttendance = Attendance::withoutGlobalScopes()
-            ->where('employee_id', $employee->id)
-            ->whereNotNull('work_schedule_id')
-            ->whereNotNull('clock_in_at')
-            ->whereNull('clock_out_at')
-            ->latest('clock_in_at')
-            ->first();
-
-        if ($openAttendance !== null) {
-            $activeSchedule = $schedules->firstWhere('id', $openAttendance->work_schedule_id);
-            if ($activeSchedule !== null) {
-                return $activeSchedule;
-            }
-        }
-
-        $completedScheduleIds = Attendance::withoutGlobalScopes()
-            ->where('employee_id', $employee->id)
-            ->whereNotNull('work_schedule_id')
-            ->whereNotNull('clock_out_at')
-            ->pluck('work_schedule_id')
-            ->map(fn ($id) => (int) $id)
-            ->all();
-
         $workingSchedules = $schedules->filter(fn (WorkSchedule $ws) => ! $ws->isOff())->values();
 
         if ($workingSchedules->isEmpty()) {
@@ -307,6 +321,67 @@ class AttendanceGeofenceService
         );
 
         return $uncompleted ?? $workingSchedules->last();
+    }
+
+    /**
+     * Resolve an uncompleted previous-day (D-1) cross-midnight schedule whose effective shift window is still ongoing.
+     *
+     * @param  list<int>  $completedScheduleIds
+     */
+    protected function resolveActivePreviousDayCrossDaySchedule(
+        Employee $employee,
+        Carbon $nowWib,
+        array $completedScheduleIds = []
+    ): ?WorkSchedule {
+        $yesterdayDate = $nowWib->copy()->subDay()->toDateString();
+
+        $candidates = WorkSchedule::withoutGlobalScopes()
+            ->with([
+                'shift' => fn ($q) => $q->withoutGlobalScopes(),
+                'dutyTag' => fn ($q) => $q->withoutGlobalScopes(),
+            ])
+            ->where('company_id', $employee->company_id)
+            ->where('employee_id', $employee->id)
+            ->whereDate('schedule_date', $yesterdayDate)
+            ->where('status', 'published')
+            ->get()
+            ->filter(function (WorkSchedule $ws) use ($nowWib, $completedScheduleIds): bool {
+                if ($ws->isOff() || ! $this->isCrossDaySchedule($ws)) {
+                    return false;
+                }
+
+                if (in_array((int) $ws->id, $completedScheduleIds, true)) {
+                    return false;
+                }
+
+                $endDt = $ws->getEffectiveEndDateTime();
+
+                return $endDt !== null && $nowWib->lessThan($endDt);
+            })
+            ->sortByDesc(fn (WorkSchedule $ws) => ($ws->getEffectiveStartTime() ?: '00:00:00') . '_' . str_pad((string) $ws->id, 10, '0', STR_PAD_LEFT))
+            ->values();
+
+        return $candidates->first();
+    }
+
+    /**
+     * Determine whether a working schedule spans across midnight into the next calendar day.
+     */
+    protected function isCrossDaySchedule(WorkSchedule $ws): bool
+    {
+        if ($ws->isOff()) {
+            return false;
+        }
+
+        $startStr = $ws->getEffectiveStartTime();
+        $endStr = $ws->getEffectiveEndTime();
+
+        if (! empty($ws->custom_start_time) || ! empty($ws->custom_end_time)) {
+            return $startStr !== '' && $endStr !== '' && $endStr <= $startStr;
+        }
+
+        return (bool) ($ws->shift?->cross_day ?? false)
+            || ($startStr !== '' && $endStr !== '' && $endStr <= $startStr);
     }
 
     /**
@@ -342,6 +417,7 @@ class AttendanceGeofenceService
 
         $openAttendance = Attendance::withoutGlobalScopes()
             ->where('employee_id', $employee->id)
+            ->where('status', '!=', 'rejected')
             ->whereNotNull('clock_in_at')
             ->whereNull('clock_out_at')
             ->latest('clock_in_at')
@@ -349,11 +425,22 @@ class AttendanceGeofenceService
 
         $completedScheduleIds = Attendance::withoutGlobalScopes()
             ->where('employee_id', $employee->id)
+            ->where('status', '!=', 'rejected')
             ->whereNotNull('work_schedule_id')
             ->whereNotNull('clock_out_at')
             ->pluck('work_schedule_id')
             ->map(fn ($id) => (int) $id)
             ->all();
+
+        $activeCrossDaySchedule = $this->resolveActivePreviousDayCrossDaySchedule(
+            $employee,
+            $nowWib,
+            $completedScheduleIds
+        );
+
+        if ($activeCrossDaySchedule !== null && ! $workingSchedules->contains('id', $activeCrossDaySchedule->id)) {
+            $workingSchedules = collect([$activeCrossDaySchedule])->merge($workingSchedules)->values();
+        }
 
         $completedCount = $workingSchedules
             ->filter(fn (WorkSchedule $ws) => in_array((int) $ws->id, $completedScheduleIds, true))
@@ -407,11 +494,13 @@ class AttendanceGeofenceService
         $clockInWib = $clockInAt->copy()->timezone('Asia/Jakarta');
 
         // Align cross-midnight startDt when circular difference exceeds 12 hours (720m)
-        $rawSignedDiff = $startDt->diffInMinutes($clockInWib, false);
-        if ($rawSignedDiff > 720) {
-            $startDt = $startDt->copy()->addDay();
-        } elseif ($rawSignedDiff < -720) {
-            $startDt = $startDt->copy()->subDay();
+        if ($this->isCrossDaySchedule($schedule)) {
+            $rawSignedDiff = $startDt->diffInMinutes($clockInWib, false);
+            if ($rawSignedDiff > 720) {
+                $startDt = $startDt->copy()->addDay();
+            } elseif ($rawSignedDiff < -720) {
+                $startDt = $startDt->copy()->subDay();
+            }
         }
 
         $graceMinutes = (int) ($schedule->shift?->grace_period_minutes ?? 15);

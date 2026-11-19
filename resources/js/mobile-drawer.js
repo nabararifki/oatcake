@@ -39,10 +39,6 @@ export function registerMobileDrawerSwipe(Alpine) {
         touchStartY = e.touches[0].clientY;
     }, { passive: true });
 
-    window.addEventListener('touchmove', (e) => {
-        if (ignoreSwipe || !e.touches || !e.touches.length) return;
-    }, { passive: true });
-
     window.addEventListener('touchend', (e) => {
         if (ignoreSwipe || !e.changedTouches || !e.changedTouches.length) return;
 

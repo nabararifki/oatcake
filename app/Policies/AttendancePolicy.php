@@ -116,7 +116,19 @@ class AttendancePolicy
      */
     public function update(User $user, Attendance $attendance): bool
     {
-        return $user->isAdminOrAbove()
+        if (! $user->is_active || ! $user->isAdminOrAbove()) {
+            return false;
+        }
+
+        if ($user->isSuperAdmin()) {
+            if (session()->has('active_company_id') && session('active_company_id') !== null) {
+                return (int) $attendance->company_id === (int) session('active_company_id');
+            }
+
+            return true;
+        }
+
+        return $user->company_id !== null
             && (int) $attendance->company_id === (int) $user->company_id;
     }
 
@@ -125,8 +137,7 @@ class AttendancePolicy
      */
     public function delete(User $user, Attendance $attendance): bool
     {
-        return $user->isAdminOrAbove()
-            && (int) $attendance->company_id === (int) $user->company_id;
+        return $this->update($user, $attendance);
     }
 
     /**

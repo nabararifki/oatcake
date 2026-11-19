@@ -184,7 +184,7 @@ class UiComponentsTest extends TestCase
         $this->assertStringContainsString('text-ink', $deptHtml);
         $this->assertStringContainsString('bg-surface', $deptHtml);
 
-        $settingsHtml = $this->get('/company/settings')->getContent();
+        $settingsHtml = $this->get('/settings/company')->getContent();
         $this->assertStringNotContainsString('text-zinc-900', $settingsHtml);
         $this->assertStringNotContainsString('bg-white', $settingsHtml);
         $this->assertStringContainsString('text-ink', $settingsHtml);

@@ -12,6 +12,14 @@ class EmployeePolicy
      */
     public function viewAny(User $user): bool
     {
+        if (! $user->is_active) {
+            return false;
+        }
+
+        if ($user->isSuperAdmin()) {
+            return true;
+        }
+
         return $user->company_id !== null
             && in_array($user->role, ['manager', 'admin', 'super_user'], true);
     }
@@ -21,6 +29,14 @@ class EmployeePolicy
      */
     public function view(User $user, Employee $employee): bool
     {
+        if (! $user->is_active) {
+            return false;
+        }
+
+        if ($user->isSuperAdmin()) {
+            return $this->matchesSuperAdminTenant($employee->company_id);
+        }
+
         if ($user->company_id === null || (int) $user->company_id !== (int) $employee->company_id) {
             return false;
         }
@@ -48,6 +64,14 @@ class EmployeePolicy
      */
     public function create(User $user, ?int $departmentId = null): bool
     {
+        if (! $user->is_active) {
+            return false;
+        }
+
+        if ($user->isSuperAdmin()) {
+            return true;
+        }
+
         if ($user->company_id === null) {
             return false;
         }
@@ -74,8 +98,12 @@ class EmployeePolicy
      */
     public function update(User $user, Employee $employee): bool
     {
+        if (! $user->is_active || ! $this->canManageTargetRank($user, $employee)) {
+            return false;
+        }
+
         if ($user->isSuperAdmin()) {
-            return true;
+            return $this->matchesSuperAdminTenant($employee->company_id);
         }
 
         if ($user->company_id === null || (int) $user->company_id !== (int) $employee->company_id) {
@@ -101,8 +129,12 @@ class EmployeePolicy
      */
     public function delete(User $user, Employee $employee): bool
     {
+        if (! $user->is_active || ! $this->canManageTargetRank($user, $employee)) {
+            return false;
+        }
+
         if ($user->isSuperAdmin()) {
-            return true;
+            return $this->matchesSuperAdminTenant($employee->company_id);
         }
 
         if ($user->company_id === null || (int) $user->company_id !== (int) $employee->company_id) {
@@ -121,5 +153,34 @@ class EmployeePolicy
         }
 
         return false;
+    }
+
+    /**
+     * Enforce strict role hierarchy: actor must outrank the target user (or match rank for self).
+     */
+    private function canManageTargetRank(User $actor, Employee $target): bool
+    {
+        $isSelf = $target->user_id !== null && (int) $actor->id === (int) $target->user_id;
+        $targetUser = $target->relationLoaded('user') ? $target->user : $target->user()->first();
+        $targetRank = User::rankForRole($targetUser?->role ?? 'user');
+        $actorRank = $actor->roleRank();
+
+        if ($isSelf) {
+            return $actorRank >= $targetRank;
+        }
+
+        return $actorRank > $targetRank;
+    }
+
+    /**
+     * Check Super Admin tenant context when an active company switch is present.
+     */
+    private function matchesSuperAdminTenant(?int $targetCompanyId): bool
+    {
+        if (session()->has('active_company_id') && session('active_company_id') !== null) {
+            return (int) $targetCompanyId === (int) session('active_company_id');
+        }
+
+        return true;
     }
 }

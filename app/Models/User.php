@@ -18,6 +18,35 @@ class User extends Authenticatable
     use HasFactory, HasUuids, Notifiable;
 
     /**
+     * Hierarchical privilege ranks from lowest (user) to highest (super_admin).
+     *
+     * @var array<string, int>
+     */
+    public const ROLE_RANKS = [
+        'user' => 1,
+        'manager' => 2,
+        'admin' => 3,
+        'super_user' => 4,
+        'super_admin' => 5,
+    ];
+
+    /**
+     * Resolve the numeric privilege rank for a given role name.
+     */
+    public static function rankForRole(?string $role): int
+    {
+        return self::ROLE_RANKS[$role ?? ''] ?? 0;
+    }
+
+    /**
+     * Get the authenticated user's hierarchical privilege rank.
+     */
+    public function roleRank(): int
+    {
+        return self::rankForRole($this->role);
+    }
+
+    /**
      * The attributes that are mass assignable.
      *
      * @var list<string>

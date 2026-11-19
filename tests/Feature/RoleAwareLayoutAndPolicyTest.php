@@ -218,7 +218,8 @@ class RoleAwareLayoutAndPolicyTest extends TestCase
         $this->actingAs($regularUser)->get('/staff')->assertForbidden();
         $this->actingAs($regularUser)->get('/staff/create')->assertForbidden();
         $this->actingAs($regularUser)->get('/departments')->assertForbidden();
-        $this->actingAs($regularUser)->get('/company/settings')->assertForbidden();
+        $this->actingAs($regularUser)->get('/company/settings')->assertStatus(404);
+        $this->actingAs($regularUser)->get('/settings/company')->assertForbidden();
     }
 
     /**

@@ -96,8 +96,13 @@
                         <h3 class="text-xs font-bold uppercase tracking-wider text-ink-muted">
                             {{ __('pwa.snapshot_14_days_title') }}
                         </h3>
-                        <span class="text-2xs font-mono text-ink-muted"
-                              x-text="($store.pwa.snapshot.window?.from || '') + ' → ' + ($store.pwa.snapshot.window?.to || '')"></span>
+                        <span class="inline-flex items-center gap-1 text-2xs font-mono text-ink-muted">
+                            <span x-text="$store.pwa.snapshot.window?.from || ''"></span>
+                            <svg class="w-3 h-3 shrink-0" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" aria-hidden="true">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M13.5 4.5 21 12m0 0-7.5 7.5M21 12H3" />
+                            </svg>
+                            <span x-text="$store.pwa.snapshot.window?.to || ''"></span>
+                        </span>
                     </div>
 
                     <template x-if="!$store.pwa.snapshot.upcoming_schedules || $store.pwa.snapshot.upcoming_schedules.length === 0">

@@ -6,6 +6,7 @@ use App\Models\PushSubscription;
 use App\Models\UserNotification;
 use App\Services\WebPushService;
 use Carbon\Carbon;
+use Closure;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -51,7 +52,47 @@ class PushSubscriptionController extends Controller
     public function store(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'endpoint' => ['required', 'url', 'max:2000'],
+            'endpoint' => [
+                'required',
+                'string',
+                'url:https',
+                'starts_with:https://',
+                'max:2000',
+                function (string $attribute, mixed $value, Closure $fail): void {
+                    $parsed = parse_url((string) $value);
+                    $scheme = strtolower((string) ($parsed['scheme'] ?? ''));
+                    $host = strtolower(trim((string) ($parsed['host'] ?? ''), '[]'));
+
+                    if ($scheme !== 'https' || $host === '') {
+                        $fail('The :attribute must use a valid public HTTPS endpoint.');
+
+                        return;
+                    }
+
+                    if (
+                        $host === 'localhost'
+                        || str_ends_with($host, '.localhost')
+                        || str_ends_with($host, '.local')
+                        || str_ends_with($host, '.internal')
+                    ) {
+                        $fail('The :attribute host is not allowed.');
+
+                        return;
+                    }
+
+                    if (filter_var($host, FILTER_VALIDATE_IP) !== false) {
+                        $isPublicIp = filter_var(
+                            $host,
+                            FILTER_VALIDATE_IP,
+                            FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE
+                        ) !== false;
+
+                        if (! $isPublicIp) {
+                            $fail('The :attribute must not target a private or loopback IP address.');
+                        }
+                    }
+                },
+            ],
             'keys.p256dh' => ['required', 'string', 'max:255'],
             'keys.auth' => ['required', 'string', 'max:255'],
             'content_encoding' => ['nullable', 'string', 'in:aes128gcm,aesgcm'],

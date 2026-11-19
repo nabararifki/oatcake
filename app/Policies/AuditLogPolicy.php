@@ -13,7 +13,7 @@ class AuditLogPolicy
      */
     public function viewAny(User $user): bool
     {
-        return $user->isAdminOrAbove();
+        return (bool) $user->is_active && $user->isAdminOrAbove();
     }
 
     /**
@@ -21,14 +21,19 @@ class AuditLogPolicy
      */
     public function view(User $user, AuditLog $auditLog): bool
     {
-        if (! $user->isAdminOrAbove()) {
+        if (! $user->is_active || ! $user->isAdminOrAbove()) {
             return false;
         }
 
         if ($user->isSuperAdmin()) {
+            if (session()->has('active_company_id') && session('active_company_id') !== null) {
+                return (int) $auditLog->company_id === (int) session('active_company_id');
+            }
+
             return true;
         }
 
-        return (int) $user->company_id === (int) $auditLog->company_id;
+        return $user->company_id !== null
+            && (int) $user->company_id === (int) $auditLog->company_id;
     }
 }

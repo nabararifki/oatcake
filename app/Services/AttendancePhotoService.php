@@ -74,14 +74,6 @@ class AttendancePhotoService
             ]);
         }
 
-        // 2. Validasi keamanan: cegah eksekusi skrip PHP yang terselubung di metadata EXIF / raw bytes
-        $rawBytes = (string) file_get_contents($realPath);
-        if (preg_match('/<\?(?:php|=)|<script\b/i', $rawBytes) === 1) {
-            throw ValidationException::withMessages([
-                'photo' => ['Berkas gambar ditolak karena mengandung metadata berbahaya.'],
-            ]);
-        }
-
         $imageInfo = @getimagesize($realPath);
         if ($imageInfo === false || ($imageInfo[0] ?? 0) < 1 || ($imageInfo[1] ?? 0) < 1) {
             throw ValidationException::withMessages([
@@ -89,7 +81,7 @@ class AttendancePhotoService
             ]);
         }
 
-        // 3. Decode & Re-encode menggunakan Intervention Image v4 (GD Driver) — otomatis membersihkan EXIF
+        // 2. Decode & Re-encode menggunakan Intervention Image v4 (GD Driver) — otomatis membersihkan EXIF
         try {
             $manager = ImageManager::usingDriver(GdDriver::class);
             $image = $manager->decodePath($realPath);
@@ -116,7 +108,7 @@ class AttendancePhotoService
                 $binaryOutput = (string) $image->encodeUsingFormat($format, quality: 50);
             }
 
-            unset($encoded, $image, $manager, $rawBytes);
+            unset($encoded, $image, $manager);
         } catch (Throwable) {
             throw ValidationException::withMessages([
                 'photo' => ['Gagal memproses berkas swafoto. Pastikan berkas gambar tidak rusak.'],

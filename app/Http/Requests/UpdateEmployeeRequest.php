@@ -76,7 +76,7 @@ class UpdateEmployeeRequest extends FormRequest
             'position' => ['required', 'string', 'max:100'],
             'join_date' => ['nullable', 'date', 'date_format:Y-m-d'],
             'phone' => ['nullable', 'string', 'max:30'],
-            'status' => ['nullable', 'string', Rule::in(['active', 'inactive', 'on_leave'])],
+            'status' => ['nullable', 'string', Rule::in(['active', 'inactive', 'on_leave', 'resigned', 'suspended'])],
             'role' => [
                 'required',
                 'string',

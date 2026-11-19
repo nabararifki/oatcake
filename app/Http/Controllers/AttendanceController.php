@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Jobs\SendWebPushNotificationJob;
 use App\Models\Attendance;
 use App\Models\Company;
 use App\Models\Department;
@@ -127,12 +128,15 @@ class AttendanceController extends Controller
         // Staff Name / Position Search (Manager & Admin Tier only, strict ZERO NIK)
         $filterSearch = trim((string) $request->input('search', ''));
         if ($canSearchStaff && $filterSearch !== '') {
-            $query->whereHas('employee', function ($eq) use ($filterSearch): void {
-                $eq->withoutGlobalScopes()->where(function ($sub) use ($filterSearch): void {
-                    $sub->where('position', 'like', "%{$filterSearch}%")
-                        ->orWhereHas('user', function ($uq) use ($filterSearch): void {
-                            $uq->where('name', 'like', "%{$filterSearch}%")
-                                ->orWhere('username', 'like', "%{$filterSearch}%");
+            $likeOperator = DB::connection()->getDriverName() === 'pgsql' ? 'ilike' : 'like';
+            $pattern = "%{$filterSearch}%";
+
+            $query->whereHas('employee', function ($eq) use ($likeOperator, $pattern): void {
+                $eq->withoutGlobalScopes()->where(function ($sub) use ($likeOperator, $pattern): void {
+                    $sub->where('position', $likeOperator, $pattern)
+                        ->orWhereHas('user', function ($uq) use ($likeOperator, $pattern): void {
+                            $uq->where('name', $likeOperator, $pattern)
+                                ->orWhere('username', $likeOperator, $pattern);
                         });
                 });
             });
@@ -140,7 +144,7 @@ class AttendanceController extends Controller
 
         $attendances = $query
             ->orderByDesc('clock_in_at')
-            ->paginate(20)
+            ->paginate(25)
             ->withQueryString();
 
         return view('attendance.index', [
@@ -217,6 +221,7 @@ class AttendanceController extends Controller
         $openAttendance = Attendance::withoutGlobalScopes()
             ->where('company_id', $company->id)
             ->where('employee_id', $employee->id)
+            ->where('status', '!=', 'rejected')
             ->whereNotNull('clock_in_at')
             ->whereNull('clock_out_at')
             ->latest('clock_in_at')
@@ -346,6 +351,7 @@ class AttendanceController extends Controller
         $openAttendance = Attendance::withoutGlobalScopes()
             ->where('company_id', $company->id)
             ->where('employee_id', $employee->id)
+            ->where('status', '!=', 'rejected')
             ->whereNotNull('clock_in_at')
             ->whereNull('clock_out_at')
             ->latest('clock_in_at')
@@ -428,26 +434,29 @@ class AttendanceController extends Controller
 
         try {
             $push = $this->webPushService ?? app(WebPushService::class);
-            $recipients = $push->resolveDepartmentManagersOrCompanyAdmins(
+            $recipientIds = $push->resolveDepartmentManagersOrCompanyAdmins(
                 (int) $company->id,
                 $employee->department_id,
                 $user->id
-            );
-            $push->notifyUsers(
-                $recipients,
-                'attendance_outside_pending',
-                __('pwa.notif_outside_pending_title'),
-                __('pwa.notif_outside_pending_body', [
-                    'name' => $user->name,
-                    'location' => $validated['outside_location_name'],
-                ]),
-                route('attendance.verifications.index', [], false),
-                [
-                    'attendance_id' => $attendance->id,
-                    'attendance_uuid' => $attendance->uuid,
-                    'employee_id' => $employee->id,
-                ]
-            );
+            )->pluck('id')->all();
+
+            if ($recipientIds !== []) {
+                SendWebPushNotificationJob::dispatch(
+                    $recipientIds,
+                    'attendance_outside_pending',
+                    __('pwa.notif_outside_pending_title'),
+                    __('pwa.notif_outside_pending_body', [
+                        'name' => $user->name,
+                        'location' => $validated['outside_location_name'],
+                    ]),
+                    route('attendance.verifications.index', [], false),
+                    [
+                        'attendance_id' => $attendance->id,
+                        'attendance_uuid' => $attendance->uuid,
+                        'employee_id' => $employee->id,
+                    ]
+                );
+            }
         } catch (Throwable $e) {
             Log::warning('Failed to dispatch outside attendance notification: '.$e->getMessage());
         }
@@ -506,29 +515,11 @@ class AttendanceController extends Controller
 
         $company = $employee->company ?? $user->company;
 
-        $geofence = $this->geofenceService->validateGeofence(
-            $company,
-            (float) $validated['latitude'],
-            (float) $validated['longitude']
-        );
-
-        if (! $geofence['is_inside']) {
-            return response()->json([
-                'success' => false,
-                'message' => __('attendance.err_outside_radius', [
-                    'distance' => $geofence['distance_meters'],
-                    'radius' => $geofence['radius_limit'],
-                ]),
-                'distance' => $geofence['distance_meters'],
-                'radius_limit' => $geofence['radius_limit'],
-                'is_outside' => true,
-            ], 422);
-        }
-
         $attendance = Attendance::withoutGlobalScopes()
             ->with('workSchedule.shift')
             ->where('company_id', $company->id)
             ->where('employee_id', $employee->id)
+            ->where('status', '!=', 'rejected')
             ->whereNotNull('clock_in_at')
             ->whereNull('clock_out_at')
             ->latest('clock_in_at')
@@ -540,6 +531,12 @@ class AttendanceController extends Controller
                 'message' => __('attendance.err_no_active_clock_in'),
             ], 422);
         }
+
+        $geofence = $this->geofenceService->validateGeofence(
+            $company,
+            (float) $validated['latitude'],
+            (float) $validated['longitude']
+        );
 
         try {
             $clockOutPhotoPath = $this->photoService->processAndStore(
@@ -560,6 +557,12 @@ class AttendanceController extends Controller
         $nowWib = Carbon::now('Asia/Jakarta');
         $clockOutEval = $this->geofenceService->evaluateClockOut($attendance->workSchedule, $nowWib);
 
+        $incomingNotes = trim((string) ($validated['notes'] ?? ''));
+        $existingNotes = trim((string) $attendance->notes);
+        $mergedNotes = $incomingNotes !== ''
+            ? ($existingNotes !== '' ? $existingNotes."\n".$incomingNotes : $incomingNotes)
+            : $attendance->notes;
+
         $attendance->update([
             'clock_out_at' => $nowWib,
             'clock_out_latitude' => $validated['latitude'],
@@ -567,7 +570,7 @@ class AttendanceController extends Controller
             'clock_out_distance_meters' => $geofence['distance_meters'],
             'clock_out_photo_path' => $clockOutPhotoPath,
             'early_leave_minutes' => $clockOutEval['early_leave_minutes'],
-            'notes' => $validated['notes'] ?? $attendance->notes,
+            'notes' => $mergedNotes,
         ]);
 
         $attendance->refresh();
@@ -578,7 +581,7 @@ class AttendanceController extends Controller
             'success' => true,
             'message' => __('attendance.msg_clock_out_success'),
             'distance' => $geofence['distance_meters'],
-            'is_outside' => false,
+            'is_outside' => ! $geofence['is_inside'],
             'data' => [
                 'id' => $attendance->id,
                 'uuid' => $attendance->uuid,

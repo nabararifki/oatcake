@@ -75,17 +75,17 @@ class LeaveAttachmentService
         $clientExt = strtolower((string) $file->getClientOriginalExtension());
         $clientMime = strtolower((string) $file->getClientMimeType());
 
-        $rawBytes = (string) file_get_contents($realPath);
-        if (preg_match('/<\?(?:php|=)|<script\b/i', $rawBytes) === 1) {
-            throw ValidationException::withMessages([
-                'attachment' => [__('leave.err_attachment_invalid')],
-            ]);
-        }
-
         $isPdf = $detectedMime === 'application/pdf'
             || ($clientExt === 'pdf' && ($clientMime === 'application/pdf' || in_array($detectedMime, ['application/x-empty', 'inode/x-empty', 'text/plain', 'application/octet-stream'], true)));
 
         if ($isPdf) {
+            $rawBytes = (string) file_get_contents($realPath);
+            if (preg_match('/<\?php\b|<script\b/i', $rawBytes) === 1) {
+                throw ValidationException::withMessages([
+                    'attachment' => [__('leave.err_attachment_invalid')],
+                ]);
+            }
+
             $pdfSizeBytes = max($incomingSize, strlen($rawBytes));
             if ($pdfSizeBytes > self::MAX_PDF_BYTES) {
                 throw ValidationException::withMessages([
@@ -128,7 +128,7 @@ class LeaveAttachmentService
                     $binaryOutput = (string) $image->encodeUsingFormat($format, quality: 50);
                 }
 
-                unset($encoded, $image, $manager, $rawBytes);
+                unset($encoded, $image, $manager);
             } catch (Throwable) {
                 throw ValidationException::withMessages([
                     'attachment' => [__('leave.err_attachment_invalid')],

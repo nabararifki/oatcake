@@ -882,4 +882,183 @@ class SmartDecisionEngineTest extends TestCase
             ->assertJsonPath('mode', 'B')
             ->assertJsonCount(1, 'results');
     }
+
+    /**
+     * Skenario 9: Keterangan Kriteria C1–C5, Coupled Lockable Sliders 100%, & Paritas Bahasa pada Mode Debug SPK SMART.
+     * - Halaman /leave untuk super_admin merender slider terkopel C1–C5, tombol lock/unlock, keterangan kriteria C1–C5,
+     *   lencana Benefit/Cost, skala satuan, serta nama karyawan asli tanpa atribut nik.
+     * - Role non-super_admin (super_user, admin, manager, user) tidak pernah melihat elemen debug slider/lock.
+     * - Endpoint POST /leave/smart-debug menegakkan invarian total bobot wajib tepat 100%.
+     */
+    public function test_scenario_9_smart_debug_console_renders_criteria_descriptions_coupled_lockable_sliders_and_enforces_100_percent_invariant(): void
+    {
+        Carbon::setTestNow(Carbon::create(2026, 11, 10, 9, 0, 0, 'Asia/Jakarta'));
+
+        $this->ledgerService->recordAccrual($this->staffEmployeeA, 'AL', 12, [
+            'accrual_year' => 2026,
+            'expires_at' => '2026-12-31',
+        ]);
+
+        $alType = LeaveType::findByCode('AL', $this->company->id);
+        $this->leaveRequestService->submitRequest($this->staffEmployeeA, [
+            'leave_type_id' => $alType->id,
+            'start_date' => '2026-12-20',
+            'end_date' => '2026-12-21',
+            'reason' => 'Verifikasi tampilan deskripsi kriteria dan slider terkopel 100%.',
+        ], null, $this->staffUserA);
+
+        $superAdmin = User::factory()->create([
+            'company_id' => null,
+            'name' => 'Root Debug Architect',
+            'username' => 'root.debug.sliders',
+            'email' => 'root.debug.sliders@oatcake.id',
+            'role' => 'super_admin',
+            'is_active' => true,
+        ]);
+
+        $superUser = User::factory()->create([
+            'company_id' => $this->company->id,
+            'name' => 'GM Non Debug',
+            'username' => 'gm.non.debug',
+            'email' => 'gm.non.debug@novotelyia.com',
+            'role' => 'super_user',
+            'is_active' => true,
+        ]);
+
+        $prevLocale = app()->getLocale();
+
+        try {
+            // 1. Verifikasi render Bahasa Indonesia (id) untuk super_admin
+            $superAdmin->forceFill(['locale' => 'id'])->save();
+            app()->setLocale('id');
+            $idResponse = $this->actingAs($superAdmin)
+                ->withSession(['active_company_id' => $this->company->id, 'locale' => 'id'])
+                ->get(route('leave.index'))
+                ->assertOk()
+                ->assertSee('smart-debug-modal', false)
+                ->assertSee('debug_department_select', false)
+                ->assertSee('debug_request_select', false)
+                ->assertSee('onDebugSliderChange', false)
+                ->assertSee('toggleDebugWeightLock', false)
+                ->assertSee('debugNormalizedPreview', false)
+                ->assertSee('rebalanceCoupledWeights', false)
+                ->assertSee('loadDebugDeptWeights', false)
+                ->assertSee('onDebugRequestChange', false)
+                ->assertSee('resetDebugWeights', false)
+                ->assertSee('Rina Kusuma')
+                ->assertDontSee('"nik":', false);
+
+            foreach (['C1', 'C2', 'C3', 'C4', 'C5'] as $code) {
+                $lower = strtolower($code);
+                $idResponse
+                    ->assertSee("debug_weight_slider_{$code}", false)
+                    ->assertSee("debug_weight_lock_{$code}", false)
+                    ->assertSee(__("leave.debug_criteria_{$lower}_title"))
+                    ->assertSee(__("leave.debug_criteria_{$lower}_scale"))
+                    ->assertSee(__("leave.debug_criteria_{$lower}_desc"));
+            }
+
+            $idResponse
+                ->assertSee(__('leave.debug_badge_benefit'))
+                ->assertSee(__('leave.debug_badge_cost'))
+                ->assertSee(__('leave.smart_lock_criterion'))
+                ->assertSee(__('leave.smart_weight_total_required'));
+
+            // 2. Verifikasi render Bahasa Inggris (en) untuk super_admin
+            $superAdmin->forceFill(['locale' => 'en'])->save();
+            app()->setLocale('en');
+            $enResponse = $this->actingAs($superAdmin)
+                ->withSession(['active_company_id' => $this->company->id, 'locale' => 'en'])
+                ->get(route('leave.index'))
+                ->assertOk()
+                ->assertSee('Lock Weight')
+                ->assertSee('Total Weight (Must Equal 100%)')
+                ->assertSee('0–90 days')
+                ->assertSee('0–12 days')
+                ->assertSee('0–14 days');
+
+            foreach (['C1', 'C2', 'C3', 'C4', 'C5'] as $code) {
+                $lower = strtolower($code);
+                $enResponse
+                    ->assertSee(__("leave.debug_criteria_{$lower}_title"))
+                    ->assertSee(__("leave.debug_criteria_{$lower}_desc"));
+            }
+        } finally {
+            app()->setLocale($prevLocale);
+        }
+
+        // 3. Isolasi ketat: non-super_admin tidak boleh melihat modal/slider/lock debug
+        foreach ([$superUser, $this->adminUser, $this->managerUser, $this->staffUserA] as $nonSuperAdmin) {
+            $this->actingAs($nonSuperAdmin)
+                ->get(route('leave.index'))
+                ->assertOk()
+                ->assertDontSee('smart-debug-modal', false)
+                ->assertDontSee('debug_weight_slider_C1', false)
+                ->assertDontSee('debug_weight_lock_C1', false);
+        }
+
+        $baseCandidates = [
+            ['name' => 'Kandidat Alpha', 'C1' => 85, 'C2' => 30, 'C3' => 98, 'C4' => 1, 'C5' => 0],
+            ['name' => 'Kandidat Beta', 'C1' => 45, 'C2' => 5, 'C3' => 90, 'C4' => 0, 'C5' => 3],
+        ];
+
+        // 4. Penegakan invarian 100% di backend POST /leave/smart-debug
+        $this->actingAs($superAdmin)
+            ->postJson(route('leave.smartDebug'), [
+                'weights' => ['C1' => 30, 'C2' => 20, 'C3' => 15, 'C4' => 10, 'C5' => 10], // Sum = 85
+                'candidates' => $baseCandidates,
+            ])
+            ->assertStatus(422)
+            ->assertJsonValidationErrors(['weights']);
+
+        $this->actingAs($superAdmin)
+            ->postJson(route('leave.smartDebug'), [
+                'weights' => ['C1' => 40, 'C2' => 30, 'C3' => 15, 'C4' => 15, 'C5' => 10], // Sum = 110
+                'candidates' => $baseCandidates,
+            ])
+            ->assertStatus(422)
+            ->assertJsonValidationErrors(['weights']);
+
+        $this->actingAs($superAdmin)
+            ->postJson(route('leave.smartDebug'), [
+                'weights' => ['C1' => 0, 'C2' => 0, 'C3' => 0, 'C4' => 0, 'C5' => 0], // Sum = 0
+                'candidates' => $baseCandidates,
+            ])
+            ->assertStatus(422)
+            ->assertJsonValidationErrors(['weights']);
+
+        // Preset Critical Staff (50/15/15/10/10) -> Sum = 100 -> HTTP 200
+        $presetResp = $this->actingAs($superAdmin)
+            ->postJson(route('leave.smartDebug'), [
+                'weights' => ['C1' => 50, 'C2' => 15, 'C3' => 15, 'C4' => 10, 'C5' => 10],
+                'min_staff_per_shift' => 3,
+                'total_department_staff' => 4,
+                'candidates' => $baseCandidates,
+            ])
+            ->assertOk()
+            ->assertJsonPath('weights.normalized.C1', 0.5)
+            ->assertJsonPath('weights.normalized.C2', 0.15)
+            ->assertJsonPath('weights.normalized.C3', 0.15)
+            ->assertJsonPath('weights.normalized.C4', 0.1)
+            ->assertJsonPath('weights.normalized.C5', 0.1);
+
+        $normSumPreset = array_sum($presetResp->json('weights.normalized'));
+        $this->assertSame(1.0, round($normSumPreset, 4));
+
+        // Distribusi hasil penguncian kriteria (65/20/15/0/0) -> Sum = 100 -> HTTP 200
+        $lockedResp = $this->actingAs($superAdmin)
+            ->postJson(route('leave.smartDebug'), [
+                'weights' => ['C1' => 65, 'C2' => 20, 'C3' => 15, 'C4' => 0, 'C5' => 0],
+                'candidates' => $baseCandidates,
+            ])
+            ->assertOk()
+            ->assertJsonPath('weights.normalized.C1', 0.65)
+            ->assertJsonPath('weights.normalized.C2', 0.2)
+            ->assertJsonPath('weights.normalized.C3', 0.15)
+            ->assertJsonPath('weights.normalized.C4', 0)
+            ->assertJsonPath('weights.normalized.C5', 0);
+
+        $normSumLocked = array_sum($lockedResp->json('weights.normalized'));
+        $this->assertSame(1.0, round($normSumLocked, 4));
+    }
 }

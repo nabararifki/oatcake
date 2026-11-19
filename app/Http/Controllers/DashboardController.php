@@ -15,6 +15,7 @@ use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\View\View;
 
@@ -166,16 +167,20 @@ class DashboardController extends Controller
             $todayAttendance = Attendance::withoutGlobalScopes()
                 ->with(['workSchedule.shift'])
                 ->where('employee_id', $employee->id)
+                ->where('status', '!=', 'rejected')
                 ->whereNotNull('clock_in_at')
                 ->whereNull('clock_out_at')
                 ->latest('clock_in_at')
                 ->first();
 
             if (! $todayAttendance) {
+                [$dayStart, $dayEnd] = $this->resolveDayClockInBounds($todayWib->toDateString(), $company);
+
                 $todayAttendance = Attendance::withoutGlobalScopes()
                     ->with(['workSchedule.shift'])
                     ->where('employee_id', $employee->id)
-                    ->whereDate('clock_in_at', $todayWib)
+                    ->where('status', '!=', 'rejected')
+                    ->whereBetween('clock_in_at', [$dayStart, $dayEnd])
                     ->latest('clock_in_at')
                     ->first();
             }
@@ -185,7 +190,10 @@ class DashboardController extends Controller
         }
 
         $hasActiveScheduleToday = $employee !== null
-            && ($todaySessionsState['working_schedules'] ?? collect())->isNotEmpty()
+            && (
+                ($todaySessionsState['working_schedules'] ?? collect())->isNotEmpty()
+                || ($todaySchedule !== null && ! $todaySchedule->isOff())
+            )
             && ! $this->geofenceService->isEmployeeOnApprovedLeave($employee, $nowWib);
         $autoAssignShiftEnabled = (bool) ($company?->auto_assign_shift_on_clock_in ?? true);
         $isClockInBlockedByUnscheduledPolicy = ! $isSuperAdmin
@@ -323,27 +331,6 @@ class DashboardController extends Controller
     }
 
     /**
-     * Return today's cross-department work schedules as JSON.
-     */
-    public function todaySchedules(Request $request): JsonResponse
-    {
-        $user = User::with(['company', 'employee.department', 'employee.tags'])->findOrFail($request->user()->id);
-        $activeCompany = $user->isSuperAdmin() && session('active_company_id')
-            ? Company::find(session('active_company_id'))
-            : $user->company;
-
-        $todayData = $this->resolveTodaySchedulesData($user, $activeCompany);
-
-        return response()->json([
-            'date' => $todayData['todayDate'],
-            'formatted_date' => $todayData['todayFormatted'],
-            'total_scheduled' => $todayData['todaySchedules']->count(),
-            'schedules' => $todayData['todaySchedulesPayload'],
-            'mods' => array_values(array_filter($todayData['todaySchedulesPayload'], fn (array $item) => $item['is_mod'])),
-        ]);
-    }
-
-    /**
      * Switch the active tenant context for Super Admin.
      */
     public function switchCompany(Request $request): RedirectResponse
@@ -365,35 +352,25 @@ class DashboardController extends Controller
     }
 
     /**
-     * Display the department management overview (Admin, Super User, Super Admin).
+     * Resolve timezone-safe clock_in_at boundaries for a calendar date in the active company's timezone.
+     *
+     * @return array{0: Carbon, 1: Carbon}
      */
-    public function departments(): View
+    private function resolveDayClockInBounds(string $dateString, ?Company $company): array
     {
-        Gate::authorize('create', Department::class);
+        $timezone = $company?->timezone ?: 'Asia/Jakarta';
+        $startUtc = Carbon::parse($dateString, $timezone)->startOfDay()->utc();
+        $endUtc = Carbon::parse($dateString, $timezone)->endOfDay()->utc();
 
-        $departments = Department::withCount([
-            'employees as active_employees_count' => fn ($query) => $query->active(),
-        ])->orderBy('code')->get();
-
-        return view('departments.index', compact('departments'));
-    }
-
-    /**
-     * Display the company settings and geofence parameters (Super User, Super Admin).
-     */
-    public function companySettings(Request $request): View
-    {
-        $user = $request->user();
-        $company = $user->isSuperAdmin() && session('active_company_id')
-            ? Company::find(session('active_company_id'))
-            : ($user->company ?? Company::first());
-
-        if ($company) {
-            Gate::authorize('update', $company);
-        } elseif (! $user->isSuperAdmin()) {
-            abort(403);
+        if (DB::connection()->getDriverName() === 'pgsql') {
+            return [$startUtc, $endUtc];
         }
 
-        return view('company.settings', compact('company'));
+        $appTimezone = (string) config('app.timezone', 'Asia/Jakarta');
+
+        return [
+            $startUtc->copy()->timezone($appTimezone),
+            $endUtc->copy()->timezone($appTimezone),
+        ];
     }
 }

@@ -12,7 +12,7 @@ class CompanyPolicy
      */
     public function viewAny(User $user): bool
     {
-        return $user->isSuperAdmin();
+        return (bool) $user->is_active && $user->isSuperAdmin();
     }
 
     /**
@@ -20,8 +20,14 @@ class CompanyPolicy
      */
     public function view(User $user, Company $company): bool
     {
+        if (! $user->is_active) {
+            return false;
+        }
+
         return $user->isSuperAdmin()
-            || (($user->isSuperUser() || $user->isAdmin()) && (int) $user->company_id === (int) $company->id);
+            || (($user->isSuperUser() || $user->isAdmin())
+                && $user->company_id !== null
+                && (int) $user->company_id === (int) $company->id);
     }
 
     /**
@@ -29,7 +35,7 @@ class CompanyPolicy
      */
     public function create(User $user): bool
     {
-        return $user->isSuperAdmin();
+        return (bool) $user->is_active && $user->isSuperAdmin();
     }
 
     /**
@@ -37,8 +43,14 @@ class CompanyPolicy
      */
     public function update(User $user, Company $company): bool
     {
+        if (! $user->is_active) {
+            return false;
+        }
+
         return $user->isSuperAdmin()
-            || (($user->isSuperUser() || $user->isAdmin()) && (int) $user->company_id === (int) $company->id);
+            || (($user->isSuperUser() || $user->isAdmin())
+                && $user->company_id !== null
+                && (int) $user->company_id === (int) $company->id);
     }
 
     /**
@@ -46,6 +58,6 @@ class CompanyPolicy
      */
     public function delete(User $user, Company $company): bool
     {
-        return $user->isSuperAdmin();
+        return (bool) $user->is_active && $user->isSuperAdmin();
     }
 }

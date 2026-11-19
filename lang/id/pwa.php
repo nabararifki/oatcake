@@ -2,9 +2,7 @@
 
 return [
     'install_app'               => 'Instal Aplikasi OATCAKE',
-    'install_app_short'         => 'Instal Aplikasi',
     'install_subtitle'          => 'Akses instan dari layar utama perangkat Anda',
-    'installed_status'          => 'Aplikasi Terinstal',
     'install_guide_title'       => 'Cara Menginstal Aplikasi OATCAKE',
     'install_guide_ios_desc'    => 'Ketuk ikon Bagikan lalu pilih Tambahkan ke Layar Utama.',
     'install_guide_step_1'      => 'Buka menu Bagikan (ikon kotak dengan panah ke atas) di peramban Safari atau menu peramban Anda.',
@@ -54,7 +52,6 @@ return [
     'not_synced_yet'            => 'Belum ada snapshot tersimpan di perangkat ini.',
     'not_synced_hint'           => 'Masuk ke akun Anda saat terhubung ke internet untuk menyimpan jadwal 14 hari ke depan secara otomatis.',
     'snapshot_staff_label'      => 'Profil Staf',
-    'snapshot_department_label' => 'Departemen',
     'snapshot_al_balance'       => 'Saldo Cuti Tahunan (AL)',
     'snapshot_dp_balance'       => 'Saldo Day Payment (DP)',
     'snapshot_days_unit'        => 'hari',
@@ -83,9 +80,6 @@ return [
     'notification_unread_badge'      => 'Belum dibaca',
     'push_test_title'                => 'Uji Notifikasi OATCAKE',
     'push_test_body'                 => 'Notifikasi perangkat dan Pusat Notifikasi berfungsi normal untuk akun Anda.',
-    'push_subscribed_toast'          => 'Notifikasi perangkat berhasil diaktifkan.',
-    'push_unsubscribed_toast'        => 'Notifikasi perangkat dinonaktifkan.',
-    'push_test_sent_toast'           => 'Notifikasi uji coba telah dikirim.',
 
     'notif_leave_submitted_title'       => 'Pengajuan Cuti Baru',
     'notif_leave_submitted_body'        => ':name (:type) mengajukan izin/cuti untuk :start s.d. :end (:days hari).',

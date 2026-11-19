@@ -1477,4 +1477,50 @@ class SmartDecisionService
             'total_department_staff' => $totalDeptStaff,
         ];
     }
+
+    /**
+     * Recalculate SPK SMART scores for all overlapping pending leave requests in the employee's department.
+     */
+    public function recalculateOverlappingDepartmentRequests(
+        Employee $employee,
+        string $startDateStr,
+        string $endDateStr,
+        ?int $excludeRequestId = null
+    ): int {
+        if ($employee->department_id === null) {
+            return 0;
+        }
+
+        $overlappingRequests = LeaveRequest::withoutGlobalScopes()
+            ->with([
+                'employee' => fn ($q) => $q->withoutGlobalScopes()->with([
+                    'department' => fn ($dq) => $dq->withoutGlobalScopes(),
+                ]),
+                'leaveType' => fn ($q) => $q->withoutGlobalScopes(),
+            ])
+            ->where('company_id', $employee->company_id)
+            ->when($excludeRequestId !== null, fn ($q) => $q->where('id', '!=', $excludeRequestId))
+            ->whereIn('status', [
+                LeaveRequest::STATUS_PENDING_MANAGER,
+                LeaveRequest::STATUS_PENDING_HR,
+            ])
+            ->whereDate('start_date', '<=', $endDateStr)
+            ->whereDate('end_date', '>=', $startDateStr)
+            ->whereHas('employee', function ($query) use ($employee): void {
+                $query->withoutGlobalScopes()
+                    ->where('department_id', $employee->department_id);
+            })
+            ->orderBy('id')
+            ->get();
+
+        $recalculated = 0;
+        foreach ($overlappingRequests->chunk(50) as $batch) {
+            foreach ($batch as $pendingRequest) {
+                $this->evaluateSingle($pendingRequest, true);
+                $recalculated++;
+            }
+        }
+
+        return $recalculated;
+    }
 }

@@ -253,7 +253,7 @@ class DashboardScheduleTest extends TestCase
         $this->assertTrue($userSchedules->every(fn (WorkSchedule $ws) => (int) $ws->company_id === (int) $fixture['hotelA']->id));
 
         // B. Pengujian endpoint JSON untuk Staf Biasa
-        $userJsonResponse = $this->actingAs($fixture['hkStaffUser'])->getJson(route('dashboard.today-schedules'));
+        $userJsonResponse = $this->actingAs($fixture['hkStaffUser'])->getJson(route('dashboard'));
         $userJsonResponse->assertOk()
             ->assertJsonPath('total_scheduled', 2)
             ->assertJsonCount(2, 'schedules')

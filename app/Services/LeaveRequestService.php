@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Jobs\SendWebPushNotificationJob;
 use App\Models\Company;
 use App\Models\Employee;
 use App\Models\LeaveRequest;
@@ -281,7 +282,7 @@ class LeaveRequestService
             $this->smartDecisionService->evaluateSingle($leaveRequest, true);
 
             return $leaveRequest->refresh();
-        });
+        }, 3);
 
         $this->dispatchLeaveSubmittedNotification($leaveRequest, $employee, $leaveType, $actor);
 
@@ -307,6 +308,11 @@ class LeaveRequestService
         }
 
         return DB::transaction(function () use ($leaveRequest, $cancellationReason, $actor): LeaveRequest {
+            $lockedEmployee = Employee::withoutGlobalScopes()
+                ->whereKey($leaveRequest->employee_id)
+                ->lockForUpdate()
+                ->firstOrFail();
+
             $lockedRequest = LeaveRequest::withoutGlobalScopes()
                 ->with(['leaveType' => fn ($q) => $q->withoutGlobalScopes()])
                 ->whereKey($leaveRequest->id)
@@ -318,11 +324,6 @@ class LeaveRequestService
                     'status' => [__('leave.err_cannot_cancel_processed')],
                 ]);
             }
-
-            $lockedEmployee = Employee::withoutGlobalScopes()
-                ->whereKey($lockedRequest->employee_id)
-                ->lockForUpdate()
-                ->firstOrFail();
 
             $oldStartDate = $lockedRequest->start_date instanceof CarbonInterface
                 ? $lockedRequest->start_date->toDateString()
@@ -353,7 +354,7 @@ class LeaveRequestService
                     );
                 }
 
-                $this->removeLeaveFromRoster($lockedEmployee, $oldStartDate, $oldEndDate);
+                $this->removeLeaveFromRoster($lockedEmployee, $oldStartDate, $oldEndDate, (int) $lockedRequest->id);
             }
 
             $lockedRequest->update([
@@ -366,7 +367,7 @@ class LeaveRequestService
             $this->recalculateOverlappingDepartmentRequests($lockedEmployee, $oldStartDate, $oldEndDate);
 
             return $lockedRequest->refresh();
-        });
+        }, 3);
     }
 
     /**
@@ -426,6 +427,11 @@ class LeaveRequestService
             $uploadedFile,
             $actor
         ): LeaveRequest {
+            $lockedEmployee = Employee::withoutGlobalScopes()
+                ->whereKey($leaveRequest->employee_id)
+                ->lockForUpdate()
+                ->firstOrFail();
+
             $lockedRequest = LeaveRequest::withoutGlobalScopes()
                 ->with(['leaveType' => fn ($q) => $q->withoutGlobalScopes()])
                 ->whereKey($leaveRequest->id)
@@ -437,11 +443,6 @@ class LeaveRequestService
                     'status' => [__('leave.err_cannot_edit_processed')],
                 ]);
             }
-
-            $lockedEmployee = Employee::withoutGlobalScopes()
-                ->whereKey($lockedRequest->employee_id)
-                ->lockForUpdate()
-                ->firstOrFail();
 
             $oldStartDateStr = $lockedRequest->start_date instanceof CarbonInterface
                 ? $lockedRequest->start_date->toDateString()
@@ -466,7 +467,7 @@ class LeaveRequestService
                 }
 
                 $lockedRequest->ledger_entry_id = null;
-                $this->removeLeaveFromRoster($lockedEmployee, $oldStartDateStr, $oldEndDateStr);
+                $this->removeLeaveFromRoster($lockedEmployee, $oldStartDateStr, $oldEndDateStr, (int) $lockedRequest->id);
             }
 
             // 2. Calculate effective days for the new date range
@@ -560,7 +561,7 @@ class LeaveRequestService
             }
 
             return $lockedRequest->refresh();
-        });
+        }, 3);
 
         $employeeModel = Employee::withoutGlobalScopes()->with('user')->find($updatedRequest->employee_id);
         if ($employeeModel !== null) {
@@ -601,46 +602,50 @@ class LeaveRequestService
             ];
 
             if ($leaveRequest->status === LeaveRequest::STATUS_PENDING_MANAGER) {
-                $recipients = $push->resolveDepartmentManagersOrCompanyAdmins(
+                $recipientIds = $push->resolveDepartmentManagersOrCompanyAdmins(
                     (int) $employee->company_id,
                     $employee->department_id,
                     $applicantUser?->id
-                );
+                )->pluck('id')->all();
 
-                $push->notifyUsers(
-                    $recipients,
-                    'leave_submitted',
-                    __('pwa.notif_leave_submitted_title'),
-                    __('pwa.notif_leave_submitted_body', [
-                        'name' => $applicantName,
-                        'type' => $leaveType->code,
-                        'start' => $startStr,
-                        'end' => $endStr,
-                        'days' => $daysStr,
-                    ]),
-                    $actionUrl,
-                    $meta
-                );
+                if ($recipientIds !== []) {
+                    SendWebPushNotificationJob::dispatch(
+                        $recipientIds,
+                        'leave_submitted',
+                        __('pwa.notif_leave_submitted_title'),
+                        __('pwa.notif_leave_submitted_body', [
+                            'name' => $applicantName,
+                            'type' => $leaveType->code,
+                            'start' => $startStr,
+                            'end' => $endStr,
+                            'days' => $daysStr,
+                        ]),
+                        $actionUrl,
+                        $meta
+                    );
+                }
             } elseif ($leaveRequest->status === LeaveRequest::STATUS_PENDING_HR) {
-                $recipients = $push->resolveCompanyAdmins(
+                $recipientIds = $push->resolveCompanyAdmins(
                     (int) $employee->company_id,
                     $applicantUser?->id
-                );
+                )->pluck('id')->all();
 
-                $push->notifyUsers(
-                    $recipients,
-                    'leave_submitted',
-                    __('pwa.notif_leave_submitted_hr_title'),
-                    __('pwa.notif_leave_submitted_hr_body', [
-                        'name' => $applicantName,
-                        'type' => $leaveType->code,
-                        'start' => $startStr,
-                        'end' => $endStr,
-                        'days' => $daysStr,
-                    ]),
-                    $actionUrl,
-                    $meta
-                );
+                if ($recipientIds !== []) {
+                    SendWebPushNotificationJob::dispatch(
+                        $recipientIds,
+                        'leave_submitted',
+                        __('pwa.notif_leave_submitted_hr_title'),
+                        __('pwa.notif_leave_submitted_hr_body', [
+                            'name' => $applicantName,
+                            'type' => $leaveType->code,
+                            'start' => $startStr,
+                            'end' => $endStr,
+                            'days' => $daysStr,
+                        ]),
+                        $actionUrl,
+                        $meta
+                    );
+                }
             }
         } catch (Throwable $e) {
             Log::warning('Failed to dispatch leave submission notification: '.$e->getMessage());
@@ -648,16 +653,20 @@ class LeaveRequestService
     }
 
     /**
-     * Remove locked LEAVE: schedules from work_schedules for the given employee and date range.
+     * Remove locked LEAVE: schedules belonging strictly to the given leaveRequestId across its date range.
      */
-    private function removeLeaveFromRoster(Employee $employee, string $startDateStr, string $endDateStr): void
+    private function removeLeaveFromRoster(Employee $employee, string $startDateStr, string $endDateStr, int $leaveRequestId): void
     {
         WorkSchedule::withoutGlobalScopes()
             ->where('company_id', $employee->company_id)
             ->where('employee_id', $employee->id)
             ->whereDate('schedule_date', '>=', $startDateStr)
             ->whereDate('schedule_date', '<=', $endDateStr)
-            ->where('notes', 'like', 'LEAVE:%')
+            ->where(function ($q) use ($leaveRequestId): void {
+                $q->where('notes', 'like', "LEAVE:%:{$leaveRequestId}|%")
+                    ->orWhere('notes', 'like', "LEAVE:%:{$leaveRequestId}:%")
+                    ->orWhere('notes', 'like', "LEAVE:%:{$leaveRequestId}");
+            })
             ->delete();
     }
 
@@ -670,27 +679,11 @@ class LeaveRequestService
         string $startDateStr,
         string $endDateStr
     ): void {
-        if ($employee->department_id === null) {
-            return;
-        }
-
-        $overlappingRequest = LeaveRequest::withoutGlobalScopes()
-            ->where('company_id', $employee->company_id)
-            ->whereIn('status', [
-                LeaveRequest::STATUS_PENDING_MANAGER,
-                LeaveRequest::STATUS_PENDING_HR,
-            ])
-            ->whereDate('start_date', '<=', $endDateStr)
-            ->whereDate('end_date', '>=', $startDateStr)
-            ->whereHas('employee', function ($query) use ($employee): void {
-                $query->withoutGlobalScopes()
-                    ->where('department_id', $employee->department_id);
-            })
-            ->first();
-
-        if ($overlappingRequest !== null) {
-            $this->smartDecisionService->evaluateSingle($overlappingRequest, true);
-        }
+        $this->smartDecisionService->recalculateOverlappingDepartmentRequests(
+            $employee,
+            $startDateStr,
+            $endDateStr
+        );
     }
 
     /**
@@ -703,11 +696,20 @@ class LeaveRequestService
         $raw = $data['leave_type'] ?? $data['leave_type_id'] ?? $data['leave_type_code'] ?? null;
 
         if ($raw instanceof LeaveType) {
+            if ($raw->company_id !== null && (int) $raw->company_id !== $companyId) {
+                return null;
+            }
+
             return $raw;
         }
 
         if (is_numeric($raw)) {
-            return LeaveType::withoutGlobalScopes()->find((int) $raw);
+            return LeaveType::withoutGlobalScopes()
+                ->where(function ($q) use ($companyId): void {
+                    $q->whereNull('company_id')
+                        ->orWhere('company_id', $companyId);
+                })
+                ->find((int) $raw);
         }
 
         if (is_string($raw) && trim($raw) !== '') {

@@ -109,6 +109,7 @@
              defaultLedgerEmployeeId: {{ Js::from($defaultLedgerEmployeeId) }},
              smartDebugUrl: {{ Js::from(route('leave.smartDebug')) }},
              csrfToken: {{ Js::from(csrf_token()) }},
+             debugDepartments: {{ Js::from($debugDepartmentsList ?? []) }},
              debugRequests: {{ Js::from($debugRequestsList ?? []) }},
          })">
 
@@ -1318,7 +1319,7 @@
                                        step="1"
                                        :value="weightForm['{{ $cCode }}']"
                                        :disabled="weightLocks['{{ $cCode }}']"
-                                       @input="onSliderChange('{{ $cCode }}', $event.target.value)"
+                                       @input="onSliderChange('{{ $cCode }}', $event.target.value, $event.target)"
                                        class="w-full h-2 rounded-lg accent-accent cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed" />
 
                                 <input type="hidden"
@@ -1329,7 +1330,7 @@
                         @endforeach
 
                         <div class="flex items-center justify-between pt-2 border-t border-line text-xs">
-                            <span class="font-semibold text-ink-muted">Total Bobot (Wajib 100%)</span>
+                            <span class="font-semibold text-ink-muted">{{ __('leave.smart_weight_total_required') }}</span>
                             <span class="font-mono font-bold px-2.5 py-0.5 rounded-md border"
                                   :class="totalWeightSum === 100
                                       ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border-emerald-500/30'
@@ -1418,6 +1419,51 @@
         @endif
 
         @if ($canDebugSmart ?? false)
+            @php
+                $debugCriteriaMeta = [
+                    'C1' => [
+                        'title' => __('leave.debug_criteria_c1_title'),
+                        'short' => __('leave.debug_criteria_c1_short'),
+                        'nature' => 'benefit',
+                        'nature_label' => __('leave.debug_badge_benefit'),
+                        'scale' => __('leave.debug_criteria_c1_scale'),
+                        'desc' => __('leave.debug_criteria_c1_desc'),
+                    ],
+                    'C2' => [
+                        'title' => __('leave.debug_criteria_c2_title'),
+                        'short' => __('leave.debug_criteria_c2_short'),
+                        'nature' => 'cost',
+                        'nature_label' => __('leave.debug_badge_cost'),
+                        'scale' => __('leave.debug_criteria_c2_scale'),
+                        'desc' => __('leave.debug_criteria_c2_desc'),
+                    ],
+                    'C3' => [
+                        'title' => __('leave.debug_criteria_c3_title'),
+                        'short' => __('leave.debug_criteria_c3_short'),
+                        'nature' => 'benefit',
+                        'nature_label' => __('leave.debug_badge_benefit'),
+                        'scale' => __('leave.debug_criteria_c3_scale'),
+                        'desc' => __('leave.debug_criteria_c3_desc'),
+                    ],
+                    'C4' => [
+                        'title' => __('leave.debug_criteria_c4_title'),
+                        'short' => __('leave.debug_criteria_c4_short'),
+                        'nature' => 'cost',
+                        'nature_label' => __('leave.debug_badge_cost'),
+                        'scale' => __('leave.debug_criteria_c4_scale'),
+                        'desc' => __('leave.debug_criteria_c4_desc'),
+                    ],
+                    'C5' => [
+                        'title' => __('leave.debug_criteria_c5_title'),
+                        'short' => __('leave.debug_criteria_c5_short'),
+                        'nature' => 'benefit',
+                        'nature_label' => __('leave.debug_badge_benefit'),
+                        'scale' => __('leave.debug_criteria_c5_scale'),
+                        'desc' => __('leave.debug_criteria_c5_desc'),
+                    ],
+                ];
+            @endphp
+
             <x-ui.modal name="smart-debug-modal" :title="__('leave.modal_smart_debug_title')" maxWidth="5xl">
                 <div class="space-y-5">
                     <p class="text-xs text-ink-muted leading-relaxed">
@@ -1448,69 +1494,176 @@
                         </div>
                     </div>
 
-                    <!-- Bobot C1..C5 & Parameter Formasi Shift -->
+                    <!-- Bobot C1..C5 (Coupled Lockable Sliders 100%) & Parameter Formasi Shift -->
                     <div class="grid grid-cols-1 lg:grid-cols-12 gap-4">
-                        <div class="lg:col-span-7 rounded-2xl border border-line bg-surface p-4 space-y-3">
-                            <div class="flex items-center justify-between gap-2">
+                        <div class="lg:col-span-8 rounded-2xl border border-line bg-surface-muted/40 p-4 space-y-3">
+                            <div class="flex flex-wrap items-center justify-between gap-2">
                                 <span class="text-xs font-bold text-ink">{{ __('leave.debug_weights_section') }}</span>
-                                <span class="inline-flex items-center rounded-full px-2.5 py-0.5 text-2xs font-mono font-bold border"
-                                      :class="debugWeightSum === 100 ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border-emerald-500/30' : 'bg-red-500/10 text-red-700 dark:text-red-300 border-red-500/30'"
-                                      x-text="`{{ __('leave.debug_weight_sum') }}: ${debugWeightSum} / 100`"></span>
+                                <div class="flex items-center gap-2">
+                                    <button type="button"
+                                            @click="resetDebugWeights()"
+                                            class="inline-flex items-center rounded-lg border border-line bg-surface px-2.5 py-1 text-2xs font-semibold text-ink hover:bg-surface-muted transition cursor-pointer">
+                                        {{ __('leave.debug_btn_reset_weights') }}
+                                    </button>
+                                    <span class="inline-flex items-center rounded-full px-2.5 py-0.5 text-2xs font-mono font-bold border"
+                                          :class="debugWeightSum === 100 ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border-emerald-500/30' : 'bg-red-500/10 text-red-700 dark:text-red-300 border-red-500/30'"
+                                          x-text="`{{ __('leave.debug_weight_sum') }}: ${debugWeightSum}%`"></span>
+                                </div>
                             </div>
 
-                            <div class="grid grid-cols-2 sm:grid-cols-5 gap-2.5">
-                                <template x-for="code in ['C1', 'C2', 'C3', 'C4', 'C5']" :key="code">
-                                    <div class="space-y-1">
-                                        <label class="block text-2xs font-mono font-bold text-ink-muted" x-text="code"></label>
-                                        <input type="number"
+                            <div class="space-y-2.5">
+                                @foreach ($debugCriteriaMeta as $cCode => $meta)
+                                    <div class="space-y-2 rounded-xl border border-line bg-surface p-3 transition-colors"
+                                         :class="debugWeightLocks['{{ $cCode }}'] ? 'border-amber-500/40 bg-amber-500/5' : ''">
+                                        <div class="flex flex-wrap items-center justify-between gap-2 text-xs">
+                                            <div class="flex flex-wrap items-center gap-1.5 min-w-0">
+                                                <label for="debug_weight_slider_{{ $cCode }}" class="font-semibold text-ink">
+                                                    {{ $meta['title'] }}
+                                                </label>
+                                                <span class="inline-flex items-center rounded-md border px-1.5 py-0.5 text-[10px] font-semibold {{ $meta['nature'] === 'benefit' ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300' : 'border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300' }}">
+                                                    {{ $meta['nature_label'] }} &middot; {{ $meta['scale'] }}
+                                                </span>
+                                            </div>
+                                            <div class="flex items-center gap-2 shrink-0">
+                                                <span class="font-mono text-xs font-bold text-ink">
+                                                    <span x-text="debugForm.weights['{{ $cCode }}']"></span>%
+                                                    <span class="text-2xs font-normal text-ink-muted">(w'=<span x-text="debugNormalizedPreview('{{ $cCode }}')"></span>)</span>
+                                                </span>
+                                                <button type="button"
+                                                        id="debug_weight_lock_{{ $cCode }}"
+                                                        @click="toggleDebugWeightLock('{{ $cCode }}')"
+                                                        :aria-pressed="debugWeightLocks['{{ $cCode }}'] ? 'true' : 'false'"
+                                                        :title="debugWeightLocks['{{ $cCode }}'] ? '{{ __('leave.smart_unlock_criterion') }}' : '{{ __('leave.smart_lock_criterion') }}'"
+                                                        class="inline-flex items-center gap-1 rounded-lg border px-2 py-0.5 text-2xs font-semibold transition cursor-pointer"
+                                                        :class="debugWeightLocks['{{ $cCode }}']
+                                                            ? 'border-amber-500/40 bg-amber-500/15 text-amber-700 dark:text-amber-300'
+                                                            : 'border-line bg-surface-muted text-ink-muted hover:text-ink'">
+                                                    <svg x-show="debugWeightLocks['{{ $cCode }}']" class="w-3.5 h-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                                        <path d="M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z" />
+                                                    </svg>
+                                                    <svg x-show="!debugWeightLocks['{{ $cCode }}']" x-cloak class="w-3.5 h-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                                        <path d="M13.5 10.5V6.75a4.5 4.5 0 119 0v3.75M3.75 21.75h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H3.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z" />
+                                                    </svg>
+                                                    <span x-text="debugWeightLocks['{{ $cCode }}'] ? '{{ __('leave.smart_locked_badge') }}' : '{{ __('leave.smart_unlocked_badge') }}'"></span>
+                                                </button>
+                                            </div>
+                                        </div>
+
+                                        <p class="text-2xs text-ink-muted leading-relaxed">
+                                            {{ $meta['desc'] }}
+                                        </p>
+
+                                        <input type="range"
+                                               id="debug_weight_slider_{{ $cCode }}"
                                                min="0"
                                                max="100"
                                                step="1"
-                                               x-model.number="debugForm.weights[code]"
-                                               class="w-full rounded-xl border border-line bg-surface-muted px-2.5 py-1.5 text-xs font-mono text-ink focus:outline-none focus:ring-2 focus:ring-accent" />
+                                               :value="debugForm.weights['{{ $cCode }}']"
+                                               :disabled="debugWeightLocks['{{ $cCode }}']"
+                                               @input="onDebugSliderChange('{{ $cCode }}', $event.target.value, $event.target)"
+                                               class="w-full h-2 rounded-lg accent-accent cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed" />
                                     </div>
-                                </template>
+                                @endforeach
+                            </div>
+
+                            <div class="flex items-center justify-between pt-2 border-t border-line text-xs">
+                                <span class="font-semibold text-ink-muted">{{ __('leave.smart_weight_total_required') }}</span>
+                                <span class="font-mono font-bold px-2.5 py-0.5 rounded-md border"
+                                      :class="debugWeightSum === 100
+                                          ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border-emerald-500/30'
+                                          : 'bg-red-500/10 text-red-700 dark:text-red-300 border-red-500/30'"
+                                      x-text="`${debugWeightSum}%`"></span>
                             </div>
                         </div>
 
-                        <div class="lg:col-span-5 rounded-2xl border border-line bg-surface p-4 space-y-3">
-                            <div class="grid grid-cols-2 gap-3">
-                                <div class="space-y-1">
-                                    <label class="block text-2xs font-semibold text-ink-muted">
-                                        {{ __('leave.debug_min_staff_label') }}
-                                    </label>
-                                    <input type="number"
-                                           min="1"
-                                           max="500"
-                                           step="1"
-                                           x-model.number="debugForm.min_staff_per_shift"
-                                           class="w-full rounded-xl border border-line bg-surface-muted px-2.5 py-1.5 text-xs font-mono text-ink focus:outline-none focus:ring-2 focus:ring-accent" />
+                        <div class="lg:col-span-4 space-y-4">
+                            <div class="rounded-2xl border border-line bg-surface p-4 space-y-3.5">
+                                <template x-if="debugDepartments.length > 0">
+                                    <div class="space-y-1">
+                                        <label for="debug_department_select" class="block text-2xs font-semibold text-ink-muted">
+                                            {{ __('leave.debug_load_dept_weights_label') }}
+                                        </label>
+                                        <select id="debug_department_select"
+                                                x-model="debugSelectedDeptId"
+                                                @change="loadDebugDeptWeights()"
+                                                class="w-full rounded-xl border border-line bg-surface-muted px-2.5 py-1.5 text-xs text-ink focus:outline-none focus:ring-2 focus:ring-accent">
+                                            <option value="">{{ __('leave.debug_select_department') }}</option>
+                                            <template x-for="dept in debugDepartments" :key="dept.id">
+                                                <option :value="String(dept.id)" x-text="`${dept.code} — ${dept.name}`"></option>
+                                            </template>
+                                        </select>
+                                        <p class="text-2xs text-ink-muted leading-snug">
+                                            {{ __('leave.debug_load_dept_weights_hint') }}
+                                        </p>
+                                    </div>
+                                </template>
+
+                                <div class="grid grid-cols-2 gap-3">
+                                    <div class="space-y-1">
+                                        <label class="block text-2xs font-semibold text-ink-muted">
+                                            {{ __('leave.debug_min_staff_label') }}
+                                        </label>
+                                        <input type="number"
+                                               min="1"
+                                               max="500"
+                                               step="1"
+                                               x-model.number="debugForm.min_staff_per_shift"
+                                               class="w-full rounded-xl border border-line bg-surface-muted px-2.5 py-1.5 text-xs font-mono text-ink focus:outline-none focus:ring-2 focus:ring-accent" />
+                                    </div>
+                                    <div class="space-y-1">
+                                        <label class="block text-2xs font-semibold text-ink-muted">
+                                            {{ __('leave.debug_total_staff_label') }}
+                                        </label>
+                                        <input type="number"
+                                               min="1"
+                                               max="2000"
+                                               step="1"
+                                               x-model.number="debugForm.total_department_staff"
+                                               class="w-full rounded-xl border border-line bg-surface-muted px-2.5 py-1.5 text-xs font-mono text-ink focus:outline-none focus:ring-2 focus:ring-accent" />
+                                    </div>
                                 </div>
+
                                 <div class="space-y-1">
-                                    <label class="block text-2xs font-semibold text-ink-muted">
-                                        {{ __('leave.debug_total_staff_label') }}
+                                    <label for="debug_request_select" class="block text-2xs font-semibold text-ink-muted">
+                                        {{ __('leave.debug_telemetry_source') }}
                                     </label>
-                                    <input type="number"
-                                           min="1"
-                                           max="2000"
-                                           step="1"
-                                           x-model.number="debugForm.total_department_staff"
-                                           class="w-full rounded-xl border border-line bg-surface-muted px-2.5 py-1.5 text-xs font-mono text-ink focus:outline-none focus:ring-2 focus:ring-accent" />
+                                    <select id="debug_request_select"
+                                            x-model="debugForm.leave_request_id"
+                                            @change="onDebugRequestChange()"
+                                            class="w-full rounded-xl border border-line bg-surface-muted px-2.5 py-1.5 text-xs text-ink focus:outline-none focus:ring-2 focus:ring-accent">
+                                        <option value="">{{ __('leave.debug_select_request') }}</option>
+                                        <template x-for="reqItem in debugRequests" :key="reqItem.id">
+                                            <option :value="reqItem.id"
+                                                    x-text="`#${reqItem.id} - ${reqItem.employee_name} (${reqItem.department_code} · ${reqItem.leave_type_code}, ${reqItem.total_days} {{ __('leave.days_unit') }}, ${reqItem.start_date})`"></option>
+                                        </template>
+                                    </select>
+                                    <p class="text-2xs text-ink-muted leading-snug">
+                                        {{ __('leave.debug_telemetry_sync_hint') }}
+                                    </p>
                                 </div>
                             </div>
 
-                            <div class="space-y-1">
-                                <label class="block text-2xs font-semibold text-ink-muted">
-                                    {{ __('leave.debug_telemetry_source') }}
-                                </label>
-                                <select x-model="debugForm.leave_request_id"
-                                        class="w-full rounded-xl border border-line bg-surface-muted px-2.5 py-1.5 text-xs text-ink focus:outline-none focus:ring-2 focus:ring-accent">
-                                    <option value="">{{ __('leave.debug_select_request') }}</option>
-                                    <template x-for="reqItem in debugRequests" :key="reqItem.id">
-                                        <option :value="reqItem.id"
-                                                x-text="`#${reqItem.id} - ${reqItem.employee_name} (${reqItem.leave_type_code}, ${reqItem.total_days} {{ __('leave.days_unit') }}, ${reqItem.start_date})`"></option>
-                                    </template>
-                                </select>
+                            <div class="rounded-2xl border border-line bg-surface-muted/40 p-4 space-y-2.5">
+                                <div class="text-2xs font-bold uppercase tracking-wider text-ink-muted">
+                                    {{ __('leave.debug_criteria_legend_title') }}
+                                </div>
+                                <div class="space-y-1.5 text-2xs text-ink">
+                                    <div class="flex items-start gap-2">
+                                        <span class="shrink-0 inline-flex items-center rounded-md border border-emerald-500/30 bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700 dark:text-emerald-300">
+                                            {{ __('leave.debug_badge_benefit') }}
+                                        </span>
+                                        <span class="text-ink-muted leading-snug">{{ __('leave.smart_type_benefit') }}</span>
+                                    </div>
+                                    <div class="flex items-start gap-2">
+                                        <span class="shrink-0 inline-flex items-center rounded-md border border-amber-500/30 bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700 dark:text-amber-300">
+                                            {{ __('leave.debug_badge_cost') }}
+                                        </span>
+                                        <span class="text-ink-muted leading-snug">{{ __('leave.smart_type_cost') }}</span>
+                                    </div>
+                                </div>
+                                <p class="text-2xs text-ink-muted leading-relaxed pt-2 border-t border-line">
+                                    {{ __('leave.debug_slider_coupling_hint') }}
+                                </p>
                             </div>
                         </div>
                     </div>
@@ -1533,13 +1686,21 @@
                             <table class="w-full text-left text-xs border-collapse">
                                 <thead class="bg-surface-muted/70 text-2xs uppercase text-ink-muted">
                                     <tr>
-                                        <th class="px-3 py-2">{{ __('leave.debug_candidate_name') }}</th>
-                                        <th class="px-2 py-2 font-mono">C1 (%)</th>
-                                        <th class="px-2 py-2 font-mono">C2 (d)</th>
-                                        <th class="px-2 py-2 font-mono">C3 (%)</th>
-                                        <th class="px-2 py-2 font-mono">C4 (d)</th>
-                                        <th class="px-2 py-2 font-mono">C5 (d)</th>
-                                        <th class="px-2 py-2 text-right">{{ __('leave.col_actions') }}</th>
+                                        <th class="px-3 py-2 align-top">{{ __('leave.debug_candidate_name') }}</th>
+                                        @foreach ($debugCriteriaMeta as $cCode => $meta)
+                                            <th class="px-2 py-2 align-top" title="{{ $meta['desc'] }}">
+                                                <div class="flex items-center gap-1 font-mono font-bold text-ink">
+                                                    <span>{{ $cCode }}</span>
+                                                    <span class="rounded px-1 py-0.5 text-[10px] font-sans font-semibold border {{ $meta['nature'] === 'benefit' ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300' : 'border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300' }}">
+                                                        {{ $meta['nature_label'] }}
+                                                    </span>
+                                                </div>
+                                                <div class="text-[10px] font-normal normal-case text-ink-muted leading-tight mt-0.5">
+                                                    {{ $meta['short'] }} ({{ $meta['scale'] }})
+                                                </div>
+                                            </th>
+                                        @endforeach
+                                        <th class="px-2 py-2 align-top text-right">{{ __('leave.col_actions') }}</th>
                                     </tr>
                                 </thead>
                                 <tbody class="divide-y divide-line">
@@ -1548,23 +1709,19 @@
                                             <td class="px-2.5 py-2 min-w-[10rem]">
                                                 <input type="text"
                                                        x-model="cand.name"
+                                                       aria-label="{{ __('leave.debug_candidate_name') }}"
                                                        class="w-full rounded-lg border border-line bg-surface-muted px-2.5 py-1 text-xs text-ink focus:outline-none focus:ring-2 focus:ring-accent" />
                                             </td>
-                                            <td class="px-1.5 py-2 w-20">
-                                                <input type="number" step="1" x-model.number="cand.C1" class="w-full rounded-lg border border-line bg-surface-muted px-2 py-1 text-xs font-mono text-ink" />
-                                            </td>
-                                            <td class="px-1.5 py-2 w-20">
-                                                <input type="number" step="1" x-model.number="cand.C2" class="w-full rounded-lg border border-line bg-surface-muted px-2 py-1 text-xs font-mono text-ink" />
-                                            </td>
-                                            <td class="px-1.5 py-2 w-20">
-                                                <input type="number" step="1" x-model.number="cand.C3" class="w-full rounded-lg border border-line bg-surface-muted px-2 py-1 text-xs font-mono text-ink" />
-                                            </td>
-                                            <td class="px-1.5 py-2 w-20">
-                                                <input type="number" step="1" x-model.number="cand.C4" class="w-full rounded-lg border border-line bg-surface-muted px-2 py-1 text-xs font-mono text-ink" />
-                                            </td>
-                                            <td class="px-1.5 py-2 w-20">
-                                                <input type="number" step="1" x-model.number="cand.C5" class="w-full rounded-lg border border-line bg-surface-muted px-2 py-1 text-xs font-mono text-ink" />
-                                            </td>
+                                            @foreach ($debugCriteriaMeta as $cCode => $meta)
+                                                <td class="px-1.5 py-2 w-24">
+                                                    <input type="number"
+                                                           step="1"
+                                                           x-model.number="cand.{{ $cCode }}"
+                                                           aria-label="{{ $meta['title'] }}"
+                                                           title="{{ $meta['title'] }} ({{ $meta['nature_label'] }} · {{ $meta['scale'] }})"
+                                                           class="w-full rounded-lg border border-line bg-surface-muted px-2 py-1 text-xs font-mono text-ink" />
+                                                </td>
+                                            @endforeach
                                             <td class="px-2.5 py-2 text-right">
                                                 <button type="button"
                                                         @click="removeDebugCandidate(idx)"
@@ -1639,7 +1796,16 @@
                                                 <tbody class="divide-y divide-line">
                                                     <template x-for="cCode in ['C1', 'C2', 'C3', 'C4', 'C5']" :key="cCode">
                                                         <tr x-show="res.criteria && res.criteria[cCode]">
-                                                            <td class="px-2.5 py-1.5 font-mono font-bold text-ink" x-text="cCode"></td>
+                                                            <td class="px-2.5 py-1.5 font-mono font-bold text-ink" :title="res.criteria[cCode]?.name || cCode">
+                                                                <div class="flex items-center gap-1.5">
+                                                                    <span x-text="cCode"></span>
+                                                                    <span class="rounded px-1 py-0.5 text-[10px] font-sans font-semibold border"
+                                                                          :class="res.criteria[cCode]?.type === 'cost'
+                                                                              ? 'border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300'
+                                                                              : 'border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'"
+                                                                          x-text="res.criteria[cCode]?.type === 'cost' ? '{{ __('leave.debug_badge_cost') }}' : '{{ __('leave.debug_badge_benefit') }}'"></span>
+                                                                </div>
+                                                            </td>
                                                             <td class="px-2.5 py-1.5 font-mono text-ink-muted" x-text="`${res.criteria[cCode]?.raw_value} / ${res.criteria[cCode]?.clamped_value}`"></td>
                                                             <td class="px-2.5 py-1.5 font-mono text-ink" x-text="res.criteria[cCode]?.formula"></td>
                                                             <td class="px-2.5 py-1.5 font-mono text-right text-ink" x-text="Number(res.criteria[cCode]?.utility || 0).toFixed(2)"></td>
@@ -1714,7 +1880,10 @@
                 ledgerData: null,
                 smartDebugUrl: config.smartDebugUrl || '',
                 csrfToken: config.csrfToken || '',
+                debugDepartments: config.debugDepartments || [],
+                debugSelectedDeptId: '',
                 debugRequests: config.debugRequests || [],
+                debugWeightLocks: { C1: false, C2: false, C3: false, C4: false, C5: false },
                 debugForm: {
                     weights: { C1: 30, C2: 20, C3: 15, C4: 15, C5: 20 },
                     min_staff_per_shift: 2,
@@ -1757,83 +1926,94 @@
                         this.fetchEffectiveDays();
                     }
                     this.loadDeptWeights();
+                    this.debugForm.weights = this.normalizeWeightsTo100(this.debugForm.weights);
                 },
 
-                loadDeptWeights() {
-                    const deptWeights = this.smartWeightsByDept[this.selectedWeightDeptId];
-                    this.weightLocks = { C1: false, C2: false, C3: false, C4: false, C5: false };
-                    if (deptWeights) {
-                        const codes = ['C1', 'C2', 'C3', 'C4', 'C5'];
-                        const rawVals = {
-                            C1: Math.max(0, Math.round(Number(deptWeights.C1?.raw_weight ?? 30))),
-                            C2: Math.max(0, Math.round(Number(deptWeights.C2?.raw_weight ?? 20))),
-                            C3: Math.max(0, Math.round(Number(deptWeights.C3?.raw_weight ?? 15))),
-                            C4: Math.max(0, Math.round(Number(deptWeights.C4?.raw_weight ?? 15))),
-                            C5: Math.max(0, Math.round(Number(deptWeights.C5?.raw_weight ?? 20))),
-                        };
-                        const sum = codes.reduce((acc, k) => acc + rawVals[k], 0);
-                        if (sum === 100) {
-                            this.weightForm = rawVals;
-                        } else if (sum > 0) {
-                            const exacts = codes.map(k => ({
-                                code: k,
-                                exact: (rawVals[k] / sum) * 100,
-                            }));
-                            let floorSum = 0;
-                            const floored = {};
-                            exacts.forEach(item => {
-                                floored[item.code] = Math.floor(item.exact);
-                                floorSum += floored[item.code];
-                                item.rem = item.exact - floored[item.code];
-                            });
-                            let remainderPoints = 100 - floorSum;
-                            exacts.sort((a, b) => b.rem - a.rem);
-                            for (let i = 0; i < exacts.length && remainderPoints > 0; i++) {
-                                floored[exacts[i].code] += 1;
-                                remainderPoints -= 1;
-                            }
-                            this.weightForm = floored;
-                        } else {
-                            this.weightForm = { C1: 30, C2: 20, C3: 15, C4: 15, C5: 20 };
-                        }
+                normalizeWeightsTo100(rawSource) {
+                    const defaultWeights = { C1: 30, C2: 20, C3: 15, C4: 15, C5: 20 };
+                    if (!rawSource || typeof rawSource !== 'object') {
+                        return { ...defaultWeights };
                     }
+
+                    const codes = ['C1', 'C2', 'C3', 'C4', 'C5'];
+                    const rawVals = {};
+                    codes.forEach(k => {
+                        const entry = rawSource[k];
+                        const val = entry && typeof entry === 'object' ? entry.raw_weight : entry;
+                        const num = Number(val);
+                        rawVals[k] = Number.isFinite(num) ? Math.max(0, Math.round(num)) : defaultWeights[k];
+                    });
+
+                    const sum = codes.reduce((acc, k) => acc + rawVals[k], 0);
+                    if (sum === 100) {
+                        return rawVals;
+                    }
+                    if (sum <= 0) {
+                        return { ...defaultWeights };
+                    }
+
+                    const exacts = codes.map(k => ({
+                        code: k,
+                        exact: (rawVals[k] / sum) * 100,
+                    }));
+                    let floorSum = 0;
+                    const floored = {};
+                    exacts.forEach(item => {
+                        floored[item.code] = Math.floor(item.exact);
+                        floorSum += floored[item.code];
+                        item.rem = item.exact - floored[item.code];
+                    });
+
+                    let remainderPoints = 100 - floorSum;
+                    exacts.sort((a, b) => b.rem - a.rem);
+                    for (let i = 0; i < exacts.length && remainderPoints > 0; i++) {
+                        floored[exacts[i].code] += 1;
+                        remainderPoints -= 1;
+                    }
+
+                    return floored;
                 },
 
-                toggleWeightLock(code) {
-                    this.weightLocks[code] = !this.weightLocks[code];
-                },
-
-                onSliderChange(changedCode, rawValue) {
-                    if (this.weightLocks[changedCode]) {
+                rebalanceCoupledWeights(weightsObj, locksObj, changedCode, rawValue, inputEl = null) {
+                    if (locksObj[changedCode]) {
+                        if (inputEl) {
+                            inputEl.value = String(weightsObj[changedCode]);
+                        }
                         return;
                     }
 
                     const codes = ['C1', 'C2', 'C3', 'C4', 'C5'];
-                    const lockedOthers = codes.filter(k => k !== changedCode && this.weightLocks[k]);
-                    const unlockedOthers = codes.filter(k => k !== changedCode && !this.weightLocks[k]);
+                    const lockedOthers = codes.filter(k => k !== changedCode && locksObj[k]);
+                    const unlockedOthers = codes.filter(k => k !== changedCode && !locksObj[k]);
 
                     const lockedSum = lockedOthers.reduce(
-                        (acc, k) => acc + Math.max(0, Math.round(Number(this.weightForm[k] || 0))),
+                        (acc, k) => acc + Math.max(0, Math.round(Number(weightsObj[k] || 0))),
                         0
                     );
                     const maxAvailable = Math.max(0, 100 - lockedSum);
 
                     if (unlockedOthers.length === 0) {
-                        this.weightForm[changedCode] = maxAvailable;
+                        weightsObj[changedCode] = maxAvailable;
+                        if (inputEl) {
+                            inputEl.value = String(maxAvailable);
+                        }
                         return;
                     }
 
                     const clampedNewVal = Math.max(0, Math.min(maxAvailable, Math.round(Number(rawValue) || 0)));
-                    this.weightForm[changedCode] = clampedNewVal;
+                    weightsObj[changedCode] = clampedNewVal;
+                    if (inputEl) {
+                        inputEl.value = String(clampedNewVal);
+                    }
 
                     const remainingPool = maxAvailable - clampedNewVal;
                     const currentUnlockedSum = unlockedOthers.reduce(
-                        (acc, k) => acc + Math.max(0, Math.round(Number(this.weightForm[k] || 0))),
+                        (acc, k) => acc + Math.max(0, Math.round(Number(weightsObj[k] || 0))),
                         0
                     );
 
                     const allocations = unlockedOthers.map(k => {
-                        const currentVal = Math.max(0, Math.round(Number(this.weightForm[k] || 0)));
+                        const currentVal = Math.max(0, Math.round(Number(weightsObj[k] || 0)));
                         const exact = currentUnlockedSum > 0
                             ? (currentVal / currentUnlockedSum) * remainingPool
                             : remainingPool / unlockedOthers.length;
@@ -1845,7 +2025,7 @@
                         };
                     });
 
-                    let distributed = allocations.reduce((acc, item) => acc + item.floorVal, 0);
+                    const distributed = allocations.reduce((acc, item) => acc + item.floorVal, 0);
                     let leftover = remainingPool - distributed;
 
                     allocations.sort((a, b) => b.rem - a.rem);
@@ -1855,8 +2035,24 @@
                     }
 
                     allocations.forEach(item => {
-                        this.weightForm[item.code] = item.floorVal;
+                        weightsObj[item.code] = item.floorVal;
                     });
+                },
+
+                loadDeptWeights() {
+                    const deptWeights = this.smartWeightsByDept[this.selectedWeightDeptId];
+                    this.weightLocks = { C1: false, C2: false, C3: false, C4: false, C5: false };
+                    if (deptWeights) {
+                        this.weightForm = this.normalizeWeightsTo100(deptWeights);
+                    }
+                },
+
+                toggleWeightLock(code) {
+                    this.weightLocks[code] = !this.weightLocks[code];
+                },
+
+                onSliderChange(changedCode, rawValue, inputEl = null) {
+                    this.rebalanceCoupledWeights(this.weightForm, this.weightLocks, changedCode, rawValue, inputEl);
                 },
 
                 normalizedPreview(code) {
@@ -1869,6 +2065,67 @@
                     }
                     const val = Math.max(0, Number(this.weightForm[code] || 0));
                     return (val / sum).toFixed(4);
+                },
+
+                toggleDebugWeightLock(code) {
+                    this.debugWeightLocks[code] = !this.debugWeightLocks[code];
+                },
+
+                onDebugSliderChange(changedCode, rawValue, inputEl = null) {
+                    this.rebalanceCoupledWeights(this.debugForm.weights, this.debugWeightLocks, changedCode, rawValue, inputEl);
+                },
+
+                debugNormalizedPreview(code) {
+                    const sum = ['C1', 'C2', 'C3', 'C4', 'C5'].reduce(
+                        (acc, k) => acc + Math.max(0, Number(this.debugForm.weights[k] || 0)),
+                        0
+                    );
+                    if (sum <= 0) {
+                        return '0.0000';
+                    }
+                    const val = Math.max(0, Number(this.debugForm.weights[code] || 0));
+                    return (val / sum).toFixed(4);
+                },
+
+                resetDebugWeights() {
+                    this.debugWeightLocks = { C1: false, C2: false, C3: false, C4: false, C5: false };
+                    this.debugSelectedDeptId = '';
+                    this.debugForm.weights = { C1: 30, C2: 20, C3: 15, C4: 15, C5: 20 };
+                },
+
+                loadDebugDeptWeights(deptId = null) {
+                    const targetId = String(deptId ?? this.debugSelectedDeptId ?? '');
+                    if (!targetId) {
+                        return;
+                    }
+                    this.debugWeightLocks = { C1: false, C2: false, C3: false, C4: false, C5: false };
+                    const deptWeights = this.smartWeightsByDept[targetId];
+                    this.debugForm.weights = deptWeights
+                        ? this.normalizeWeightsTo100(deptWeights)
+                        : { C1: 30, C2: 20, C3: 15, C4: 15, C5: 20 };
+
+                    const dept = this.debugDepartments.find(d => String(d.id) === targetId);
+                    if (dept) {
+                        this.debugForm.min_staff_per_shift = Number(dept.min_staff_per_shift || 1);
+                        this.debugForm.total_department_staff = Number(dept.total_department_staff || 1);
+                    }
+                },
+
+                onDebugRequestChange() {
+                    const req = this.debugRequests.find(r => String(r.id) === String(this.debugForm.leave_request_id));
+                    if (!req) {
+                        return;
+                    }
+                    if (req.department_id) {
+                        this.debugSelectedDeptId = String(req.department_id);
+                        this.debugWeightLocks = { C1: false, C2: false, C3: false, C4: false, C5: false };
+                        const deptWeights = this.smartWeightsByDept[req.department_id];
+                        this.debugForm.weights = deptWeights
+                            ? this.normalizeWeightsTo100(deptWeights)
+                            : { C1: 30, C2: 20, C3: 15, C4: 15, C5: 20 };
+                    }
+                    this.debugForm.min_staff_per_shift = Number(req.min_staff_per_shift || 2);
+                    this.debugForm.total_department_staff = Number(req.total_department_staff || 5);
                 },
 
                 async fetchEffectiveDays() {
@@ -2028,7 +2285,12 @@
                 },
 
                 applyDebugPreset(preset) {
+                    this.debugWeightLocks = { C1: false, C2: false, C3: false, C4: false, C5: false };
+                    this.debugForm.leave_request_id = '';
+                    this.debugSelectedDeptId = '';
+
                     if (preset === 'mode_b') {
+                        this.debugForm.weights = this.normalizeWeightsTo100({ C1: 30, C2: 20, C3: 15, C4: 15, C5: 20 });
                         this.debugForm.min_staff_per_shift = 2;
                         this.debugForm.total_department_staff = 6;
                         this.debugForm.candidates = [
@@ -2038,6 +2300,7 @@
                     }
 
                     if (preset === 'critical_staff') {
+                        this.debugForm.weights = this.normalizeWeightsTo100({ C1: 50, C2: 15, C3: 15, C4: 10, C5: 10 });
                         this.debugForm.min_staff_per_shift = 3;
                         this.debugForm.total_department_staff = 4;
                         this.debugForm.candidates = [
@@ -2048,6 +2311,7 @@
                         return;
                     }
 
+                    this.debugForm.weights = this.normalizeWeightsTo100({ C1: 30, C2: 20, C3: 15, C4: 15, C5: 20 });
                     this.debugForm.min_staff_per_shift = 2;
                     this.debugForm.total_department_staff = 5;
                     this.debugForm.candidates = [
@@ -2077,6 +2341,14 @@
                     this.debugError = '';
                     this.debugLoading = true;
                     try {
+                        const normalizedPayloadWeights = {
+                            C1: Math.round(Number(this.debugForm.weights.C1 || 0)),
+                            C2: Math.round(Number(this.debugForm.weights.C2 || 0)),
+                            C3: Math.round(Number(this.debugForm.weights.C3 || 0)),
+                            C4: Math.round(Number(this.debugForm.weights.C4 || 0)),
+                            C5: Math.round(Number(this.debugForm.weights.C5 || 0)),
+                        };
+
                         const response = await fetch(this.smartDebugUrl, {
                             method: 'POST',
                             headers: {
@@ -2086,7 +2358,7 @@
                                 'X-Requested-With': 'XMLHttpRequest',
                             },
                             body: JSON.stringify({
-                                weights: this.debugForm.weights,
+                                weights: normalizedPayloadWeights,
                                 min_staff_per_shift: Number(this.debugForm.min_staff_per_shift || 1),
                                 total_department_staff: Number(this.debugForm.total_department_staff || 1),
                                 leave_request_id: this.debugForm.leave_request_id || null,

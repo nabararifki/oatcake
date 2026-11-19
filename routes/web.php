@@ -3,12 +3,12 @@
 use App\Http\Controllers\AttendanceController;
 use App\Http\Controllers\AttendanceVerificationController;
 use App\Http\Controllers\AuditLogController;
+use App\Http\Controllers\CompanyBackupController;
 use App\Http\Controllers\CompanySettingsController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\DepartmentController;
 use App\Http\Controllers\LeaveRequestController;
 use App\Http\Controllers\LocaleController;
-use App\Http\Controllers\PreferenceController;
 use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\PushSubscriptionController;
 use App\Http\Controllers\PwaController;
@@ -23,13 +23,12 @@ Route::get('/', function () {
 });
 
 Route::post('/locale', LocaleController::class)->name('locale.update');
-Route::patch('/preferences', PreferenceController::class)->middleware('auth')->name('preferences.update');
 
 Route::get('/manifest.webmanifest', [PwaController::class, 'manifest'])->name('pwa.manifest');
 Route::get('/offline', [PwaController::class, 'offline'])->name('pwa.offline');
 
 Route::get('/dashboard', [DashboardController::class, 'index'])
-    ->middleware(['auth', 'verified'])
+    ->middleware('auth')
     ->name('dashboard');
 
 Route::middleware('auth')->group(function () {
@@ -42,11 +41,8 @@ Route::middleware('auth')->group(function () {
     Route::post('/notifications/read-all', [PushSubscriptionController::class, 'markAllRead'])->name('notifications.markAllRead');
     Route::post('/notifications/{userNotification}/read', [PushSubscriptionController::class, 'markRead'])->name('notifications.markRead');
 
-    Route::get('/dashboard/today-schedules', [DashboardController::class, 'todaySchedules'])->name('dashboard.today-schedules');
-
     Route::get('/profile', [ProfileController::class, 'edit'])->name('profile.edit');
     Route::patch('/profile', [ProfileController::class, 'update'])->name('profile.update');
-    Route::delete('/profile', [ProfileController::class, 'destroy'])->name('profile.destroy');
 
     Route::get('/staff', [StaffProvisioningController::class, 'index'])->name('staff.index');
     Route::get('/staff/create', [StaffProvisioningController::class, 'create'])->name('staff.create');
@@ -102,21 +98,23 @@ Route::middleware('auth')->group(function () {
     Route::delete('/departments/{department}', [DepartmentController::class, 'destroy'])->name('departments.destroy');
 
     Route::get('/settings/company', [CompanySettingsController::class, 'edit'])->name('settings.company');
-    Route::get('/settings/company/edit', [CompanySettingsController::class, 'edit'])->name('settings.company.edit');
     Route::put('/settings/company', [CompanySettingsController::class, 'update'])->name('settings.company.update');
-    Route::patch('/settings/company', [CompanySettingsController::class, 'update']);
-    Route::post('/settings/company', [CompanySettingsController::class, 'update']);
-    Route::put('/settings/company/{company}', [CompanySettingsController::class, 'update'])->name('settings.company.update.tenant');
-    Route::patch('/settings/company/{company}', [CompanySettingsController::class, 'update']);
+
+    Route::prefix('/settings/company/backups')->name('settings.company.backups.')->group(function () {
+        Route::get('/', [CompanyBackupController::class, 'index'])->name('index');
+        Route::post('/', [CompanyBackupController::class, 'store'])->name('store');
+        Route::post('/restore', [CompanyBackupController::class, 'restore'])->name('restore');
+        Route::get('/{filename}/download', [CompanyBackupController::class, 'download'])
+            ->where('filename', '[A-Za-z0-9._-]+\.zip')
+            ->name('download');
+        Route::delete('/{filename}', [CompanyBackupController::class, 'destroy'])
+            ->where('filename', '[A-Za-z0-9._-]+\.zip')
+            ->name('destroy');
+    });
 
     Route::post('/settings/holidays', [CompanySettingsController::class, 'storeHoliday'])->name('settings.holidays.store');
     Route::put('/settings/holidays/{publicHoliday}', [CompanySettingsController::class, 'updateHoliday'])->name('settings.holidays.update');
-    Route::patch('/settings/holidays/{publicHoliday}', [CompanySettingsController::class, 'updateHoliday']);
     Route::delete('/settings/holidays/{publicHoliday}', [CompanySettingsController::class, 'destroyHoliday'])->name('settings.holidays.destroy');
-
-    Route::get('/company/settings', [CompanySettingsController::class, 'edit'])->name('company.settings');
-    Route::put('/company/settings', [CompanySettingsController::class, 'update'])->name('company.settings.update');
-    Route::patch('/company/settings', [CompanySettingsController::class, 'update']);
 
     Route::post('/admin/companies', [CompanySettingsController::class, 'store'])->name('admin.companies.store');
     Route::post('/company/switch', [DashboardController::class, 'switchCompany'])->name('company.switch');
