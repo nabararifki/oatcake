@@ -42,6 +42,114 @@
             </div>
         @endif
 
+        <!-- Filter Bar Direktori Staf Lanjutan -->
+        <form method="GET" action="{{ route('staff.index') }}"
+              class="rounded-2xl border border-line bg-surface p-4 shadow-sm">
+            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3 items-end">
+                <div class="lg:col-span-2">
+                    <label for="filter-search" class="block text-2xs font-semibold text-ink-muted uppercase tracking-wider mb-1">
+                        {{ __('staff.filter_search_label') }}
+                    </label>
+                    <input id="filter-search"
+                           type="text"
+                           name="search"
+                           value="{{ $filters['search'] ?? '' }}"
+                           placeholder="{{ __('staff.filter_search_placeholder') }}"
+                           class="w-full rounded-xl border border-line bg-canvas px-3 py-2 text-xs text-ink placeholder:text-ink-faint focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent" />
+                </div>
+
+                @if ($canFilterDepartment ?? false)
+                    <div>
+                        <label for="filter-department" class="block text-2xs font-semibold text-ink-muted uppercase tracking-wider mb-1">
+                            {{ __('staff.filter_department') }}
+                        </label>
+                        <select id="filter-department"
+                                name="department_id"
+                                class="w-full rounded-xl border border-line bg-canvas px-3 py-2 text-xs text-ink focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent">
+                            <option value="">{{ __('staff.filter_all_departments') }}</option>
+                            @foreach ($departments as $dept)
+                                <option value="{{ $dept->id }}" @selected((string) ($filters['department_id'] ?? '') === (string) $dept->id)>
+                                    {{ $dept->code }} — {{ $dept->name }}
+                                </option>
+                            @endforeach
+                        </select>
+                    </div>
+                @endif
+
+                <div>
+                    <label for="filter-role" class="block text-2xs font-semibold text-ink-muted uppercase tracking-wider mb-1">
+                        {{ __('staff.filter_role') }}
+                    </label>
+                    @php
+                        $filterRoleLabels = [
+                            'super_admin' => __('staff.role_super_admin'),
+                            'super_user' => __('staff.role_super_user'),
+                            'admin_hr' => __('staff.role_admin_hr'),
+                            'manager' => __('staff.role_manager'),
+                            'admin_staff' => __('staff.role_admin_staff'),
+                            'user' => __('staff.role_user'),
+                        ];
+                    @endphp
+                    <select id="filter-role"
+                            name="role"
+                            class="w-full rounded-xl border border-line bg-canvas px-3 py-2 text-xs text-ink focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent">
+                        <option value="">{{ __('staff.filter_all_roles') }}</option>
+                        @foreach ($availableRoles as $roleOpt)
+                            <option value="{{ $roleOpt }}" @selected(($filters['role'] ?? '') === $roleOpt)>
+                                {{ $filterRoleLabels[$roleOpt] ?? strtoupper(str_replace('_', ' ', $roleOpt)) }}
+                            </option>
+                        @endforeach
+                    </select>
+                </div>
+
+                <div>
+                    <label for="filter-status" class="block text-2xs font-semibold text-ink-muted uppercase tracking-wider mb-1">
+                        {{ __('staff.filter_status') }}
+                    </label>
+                    <select id="filter-status"
+                            name="status"
+                            class="w-full rounded-xl border border-line bg-canvas px-3 py-2 text-xs text-ink focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent">
+                        <option value="">{{ __('staff.filter_all_statuses') }}</option>
+                        <option value="active" @selected(($filters['status'] ?? '') === 'active')>{{ __('staff.status_active') }}</option>
+                        <option value="inactive" @selected(($filters['status'] ?? '') === 'inactive')>{{ __('staff.status_inactive') }}</option>
+                        <option value="on_leave" @selected(($filters['status'] ?? '') === 'on_leave')>{{ __('staff.status_on_leave') }}</option>
+                    </select>
+                </div>
+
+                <div>
+                    <label for="filter-tag" class="block text-2xs font-semibold text-ink-muted uppercase tracking-wider mb-1">
+                        {{ __('staff.filter_tag') }}
+                    </label>
+                    <select id="filter-tag"
+                            name="tag_id"
+                            class="w-full rounded-xl border border-line bg-canvas px-3 py-2 text-xs text-ink focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent">
+                        <option value="">{{ __('staff.filter_all_tags') }}</option>
+                        @foreach ($tags as $tagOpt)
+                            <option value="{{ $tagOpt->id }}" @selected((string) ($filters['tag_id'] ?? '') === (string) $tagOpt->id)>
+                                {{ $tagOpt->name }}
+                            </option>
+                        @endforeach
+                    </select>
+                </div>
+
+                <div class="flex items-center gap-2 {{ ($canFilterDepartment ?? false) ? 'lg:col-span-6 justify-end' : '' }}">
+                    <button type="submit"
+                            class="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-accent text-accent-fg text-xs font-semibold shadow-sm hover:opacity-95 transition-all cursor-pointer">
+                        <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                            <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" />
+                        </svg>
+                        <span>{{ __('staff.filter_btn_apply') }}</span>
+                    </button>
+                    @if (($filters['search'] ?? '') !== '' || (($canFilterDepartment ?? false) && ($filters['department_id'] ?? '') !== '') || ($filters['role'] ?? '') !== '' || ($filters['status'] ?? '') !== '' || ($filters['tag_id'] ?? '') !== '')
+                        <a href="{{ route('staff.index') }}"
+                           class="inline-flex items-center px-3.5 py-2 rounded-xl border border-line bg-surface-muted hover:bg-surface text-xs font-medium text-ink transition-colors">
+                            {{ __('staff.filter_btn_reset') }}
+                        </a>
+                    @endif
+                </div>
+            </div>
+        </form>
+
         <x-ui.table :striped="true" class="rounded-xl border border-line bg-surface shadow-sm overflow-hidden">
             <x-slot name="header">
                 <tr class="bg-surface-muted border-b border-line">
@@ -74,13 +182,28 @@
                         <div class="text-xs text-ink-muted">{{ __('staff.field_join_date') }}: {{ $employee->join_date?->format('Y-m-d') }}</div>
                     </td>
                     <td class="py-3 px-4">
+                        @php
+                            $staffRole = $employee->user?->role ?? 'user';
+                            $staffRoleKey = 'staff.role_' . $staffRole;
+                            $staffRoleLabel = __($staffRoleKey) !== $staffRoleKey ? __($staffRoleKey) : strtoupper(str_replace('_', ' ', $staffRole));
+                        @endphp
                         <span class="o-badge o-badge-neutral uppercase">
-                            {{ $employee->user?->role ?? 'user' }}
+                            {{ $staffRoleLabel }}
                         </span>
                     </td>
                     <td class="py-3 px-4">
-                        <span class="o-badge o-badge-success uppercase">
-                            {{ $employee->status }}
+                        @php
+                            $staffStatus = $employee->status ?? 'active';
+                            $staffStatusKey = 'staff.status_' . $staffStatus;
+                            $staffStatusLabel = __($staffStatusKey) !== $staffStatusKey ? __($staffStatusKey) : $staffStatus;
+                            $statusBadgeClass = match ($staffStatus) {
+                                'active' => 'o-badge-success',
+                                'on_leave' => 'bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30',
+                                default => 'o-badge-neutral',
+                            };
+                        @endphp
+                        <span class="o-badge {{ $statusBadgeClass }} uppercase">
+                            {{ $staffStatusLabel }}
                         </span>
                     </td>
                     <td class="py-3 px-4">
@@ -90,7 +213,7 @@
                                     $tagDescKey = 'roster.tag_desc_' . strtolower($tag->code);
                                     $tagLabelKey = 'roster.tag_' . strtolower($tag->code);
                                     $resolvedTagDesc = __($tagDescKey) !== $tagDescKey ? __($tagDescKey) : $tag->name;
-                                    $resolvedTagLabel = __($tagLabelKey) !== $tagLabelKey ? __($tagLabelKey) : $tag->code;
+                                    $resolvedTagLabel = __($tagLabelKey) !== $tagLabelKey ? __($tagLabelKey) : $tag->name;
                                 @endphp
                                 <span class="inline-flex items-center rounded-md px-2 py-0.5 text-2xs font-semibold text-white"
                                       style="background-color: {{ $tag->badge_color }};"

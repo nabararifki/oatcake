@@ -113,12 +113,16 @@ class LeaveRequestPolicy
             return true;
         }
 
-        // 3. Manager pada departemen yang sama
-        if ($user->isManager()) {
+        $reqEmployee = $this->resolveRequestEmployee($leaveRequest);
+
+        // 3. Direct manager of the applicant (e.g., GM overseeing an HOD in another department)
+        if ($this->isDirectManagerOf($user, $reqEmployee)) {
+            return true;
+        }
+
+        // 4. Manager or Admin Staff pada departemen yang sama
+        if ($user->isSupervisorOrManager()) {
             $managerDeptId = $user->employee?->department_id;
-            $reqEmployee = $leaveRequest->relationLoaded('employee')
-                ? $leaveRequest->employee
-                : Employee::withoutGlobalScopes()->find($leaveRequest->employee_id);
 
             return $managerDeptId !== null
                 && $reqEmployee !== null
@@ -130,7 +134,8 @@ class LeaveRequestPolicy
 
     /**
      * Determine whether the user can view the SPK SMART analysis for a leave request.
-     * Restricted strictly to Manager (same department) and Admin/Super User/Super Admin (same tenant).
+     * Restricted strictly to Manager/Admin Staff (same department), direct superior of the applicant,
+     * and Admin HR/Super User/Super Admin (same tenant).
      */
     public function viewSmartAnalysis(User $user, LeaveRequest $leaveRequest): bool
     {
@@ -142,11 +147,14 @@ class LeaveRequestPolicy
             return true;
         }
 
-        if ($user->isManager()) {
+        $reqEmployee = $this->resolveRequestEmployee($leaveRequest);
+
+        if ($this->isDirectManagerOf($user, $reqEmployee)) {
+            return true;
+        }
+
+        if ($user->isSupervisorOrManager()) {
             $managerDeptId = $user->employee?->department_id;
-            $reqEmployee = $leaveRequest->relationLoaded('employee')
-                ? $leaveRequest->employee
-                : Employee::withoutGlobalScopes()->find($leaveRequest->employee_id);
 
             return $managerDeptId !== null
                 && $reqEmployee !== null
@@ -206,7 +214,9 @@ class LeaveRequestPolicy
     }
 
     /**
-     * Determine whether the user can execute Tier 1 (Manager level) approval on a leave request.
+     * Determine whether the user can execute Tier 1 approval on a leave request.
+     * - Regular staff: Manager / Admin Staff (non-AL) / Admin+
+     * - HOD-tagged applicant: Admin HR / Super User / Super Admin (Tier 1 = pending_hr)
      */
     public function approveTier1(User $user, LeaveRequest $leaveRequest): bool
     {
@@ -214,24 +224,38 @@ class LeaveRequestPolicy
             return false;
         }
 
-        // Prevent manager self-approval
-        if (
-            ! $user->isAdminOrAbove()
-            && $user->employee !== null
-            && (int) $user->employee->id === (int) $leaveRequest->employee_id
-        ) {
+        $reqEmployee = $this->resolveRequestEmployee($leaveRequest);
+        $isHod = $reqEmployee !== null && $reqEmployee->hasTag('HOD');
+        $isSelf = $user->employee !== null && (int) $user->employee->id === (int) $leaveRequest->employee_id;
+
+        // Prevent self-approval (Admin+ cannot self-approve HOD requests unless Super Admin)
+        if ($isSelf && (! $user->isAdminOrAbove() || ($isHod && ! $user->isSuperAdmin()))) {
             return false;
+        }
+
+        if ($isHod) {
+            return $user->isAdminOrAbove();
         }
 
         if ($user->isAdminOrAbove()) {
             return true;
         }
 
+        if ($user->isAdminStaff()) {
+            // Admin Staff (Supervisor / Duty Manager) is strictly forbidden from approving Annual Leave (AL).
+            if ($this->isAnnualLeave($leaveRequest)) {
+                return false;
+            }
+
+            $deptId = $user->employee?->department_id;
+
+            return $deptId !== null
+                && $reqEmployee !== null
+                && (int) $reqEmployee->department_id === (int) $deptId;
+        }
+
         if ($user->isManager()) {
             $managerDeptId = $user->employee?->department_id;
-            $reqEmployee = $leaveRequest->relationLoaded('employee')
-                ? $leaveRequest->employee
-                : Employee::withoutGlobalScopes()->find($leaveRequest->employee_id);
 
             return $managerDeptId !== null
                 && $reqEmployee !== null
@@ -242,12 +266,31 @@ class LeaveRequestPolicy
     }
 
     /**
-     * Determine whether the user can execute Tier 2 (Final HR/Admin level) approval on a leave request.
+     * Determine whether the user can execute Tier 2 (final) approval on a leave request.
+     * - Regular staff: Admin HR / Super User / Super Admin
+     * - HOD-tagged applicant: HOD's direct superior (employee.manager_id) or Super User / Super Admin emergency fallback
      */
     public function approveTier2(User $user, LeaveRequest $leaveRequest): bool
     {
         if (! $user->is_active || ! $this->isSameTenant($user, $leaveRequest)) {
             return false;
+        }
+
+        $reqEmployee = $this->resolveRequestEmployee($leaveRequest);
+        $isHod = $reqEmployee !== null && $reqEmployee->hasTag('HOD');
+
+        if ($isHod) {
+            $isSelf = $user->employee !== null && (int) $user->employee->id === (int) $leaveRequest->employee_id;
+            if ($isSelf && ! $user->isSuperAdmin()) {
+                return false;
+            }
+
+            // Super Admin & Super User always act as executive/emergency fallback for Tier 2
+            if ($user->isSuperAdmin() || $user->isSuperUser()) {
+                return true;
+            }
+
+            return $this->isDirectManagerOf($user, $reqEmployee);
         }
 
         return $user->isAdminOrAbove();
@@ -262,7 +305,7 @@ class LeaveRequestPolicy
             return false;
         }
 
-        if ($leaveRequest->status === LeaveRequest::STATUS_PENDING_HR) {
+        if ($leaveRequest->canBeApprovedTier2()) {
             return $this->approveTier2($user, $leaveRequest);
         }
 
@@ -288,8 +331,8 @@ class LeaveRequestPolicy
             return true;
         }
 
-        // 3. Manager of the same department
-        if ($user->isManager()) {
+        // 3. Manager or Admin Staff of the same department
+        if ($user->isSupervisorOrManager()) {
             return $user->employee !== null
                 && $user->employee->department_id !== null
                 && (int) $user->employee->department_id === (int) $employee->department_id;
@@ -307,11 +350,52 @@ class LeaveRequestPolicy
     }
 
     /**
-     * Determine whether the user can access the Super Admin SPK SMART Debug & Simulator console.
+     * Determine whether the user can access the SPK SMART Debug & Simulator console (Super Admin & Super User).
      */
     public function debugSmartEngine(User $user): bool
     {
-        return (bool) $user->is_active && $user->role === 'super_admin';
+        return (bool) $user->is_active && in_array($user->role, ['super_admin', 'super_user'], true);
+    }
+
+    /**
+     * Resolve the applicant Employee with tags loaded (scope-safe).
+     */
+    private function resolveRequestEmployee(LeaveRequest $leaveRequest): ?Employee
+    {
+        $reqEmployee = $leaveRequest->relationLoaded('employee')
+            ? $leaveRequest->employee
+            : Employee::withoutGlobalScopes()
+                ->with(['tags' => fn ($q) => $q->withoutGlobalScopes()])
+                ->find($leaveRequest->employee_id);
+
+        if ($reqEmployee !== null && ! $reqEmployee->relationLoaded('tags') && ! array_key_exists('has_hod_tag', $reqEmployee->getAttributes())) {
+            $reqEmployee->load(['tags' => fn ($q) => $q->withoutGlobalScopes()]);
+        }
+
+        return $reqEmployee;
+    }
+
+    /**
+     * Determine whether the acting user is the direct superior (manager_id) of the applicant employee.
+     */
+    private function isDirectManagerOf(User $user, ?Employee $employee): bool
+    {
+        return $user->employee !== null
+            && $employee !== null
+            && $employee->manager_id !== null
+            && (int) $user->employee->id === (int) $employee->manager_id;
+    }
+
+    /**
+     * Determine whether the leave request is for Annual Leave (AL).
+     */
+    private function isAnnualLeave(LeaveRequest $leaveRequest): bool
+    {
+        $leaveType = $leaveRequest->relationLoaded('leaveType')
+            ? $leaveRequest->leaveType
+            : LeaveType::withoutGlobalScopes()->find($leaveRequest->leave_type_id);
+
+        return strtoupper((string) ($leaveType?->code ?? '')) === 'AL';
     }
 
     /**

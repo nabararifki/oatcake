@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\Attendance;
 use App\Models\Company;
 use App\Models\PublicHoliday;
+use App\Models\Tag;
 use App\Models\User;
 use App\Services\DpCommitService;
 use Carbon\Carbon;
@@ -13,7 +14,9 @@ use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 use Illuminate\View\View;
 
 class CompanySettingsController extends Controller
@@ -75,13 +78,22 @@ class CompanySettingsController extends Controller
                 ->get()
             : collect();
 
+        $tags = $company
+            ? Tag::withoutGlobalScopes()
+                ->where('company_id', $company->id)
+                ->withCount('employees')
+                ->orderBy('name')
+                ->get()
+            : collect();
+
         return view('settings.company', compact(
             'company',
             'tenants',
             'allCompanies',
             'isSuperAdmin',
             'holidays',
-            'selectedHolidayYear'
+            'selectedHolidayYear',
+            'tags'
         ));
     }
 
@@ -125,6 +137,7 @@ class CompanySettingsController extends Controller
             'accent_color' => ['nullable', 'string', 'max:20'],
             'allowed_email_domain' => ['nullable', 'string', 'max:100'],
             'photo_retention_months' => ['nullable', 'integer', Rule::in([1, 3, 6, 12])],
+            'auto_logout_minutes' => ['nullable', 'integer', 'min:5', 'max:1440'],
             'auto_assign_shift_on_clock_in' => ['nullable', 'boolean'],
         ];
 
@@ -153,6 +166,10 @@ class CompanySettingsController extends Controller
 
         if (array_key_exists('photo_retention_months', $validated) && $validated['photo_retention_months'] !== null) {
             $updateData['photo_retention_months'] = (int) $validated['photo_retention_months'];
+        }
+
+        if (array_key_exists('auto_logout_minutes', $validated) && $validated['auto_logout_minutes'] !== null) {
+            $updateData['auto_logout_minutes'] = (int) $validated['auto_logout_minutes'];
         }
 
         if ($user->isSuperAdmin() && array_key_exists('storage_limit_mb', $validated) && $validated['storage_limit_mb'] !== null) {
@@ -338,6 +355,156 @@ class CompanySettingsController extends Controller
     }
 
     /**
+     * Store a new employee tag for the active company (Admin HR+ only).
+     */
+    public function storeTag(Request $request): RedirectResponse|JsonResponse
+    {
+        $user = $request->user();
+        if (! $user || ! $user->isAdminOrAbove()) {
+            abort(403);
+        }
+
+        $company = $this->resolveActiveCompany($request);
+        if (! $company) {
+            abort(403);
+        }
+
+        $validated = $request->validate([
+            'name' => ['required', 'string', 'max:100'],
+            'code' => ['nullable', 'string', 'max:50', 'regex:/^[A-Za-z0-9_-]+$/'],
+            'badge_color' => ['nullable', 'string', 'regex:/^#[0-9A-Fa-f]{6}$/'],
+        ]);
+
+        $cleanName = trim($validated['name']);
+        $rawCode = trim((string) ($validated['code'] ?? ''));
+        $normalizedCode = $rawCode !== ''
+            ? strtoupper($rawCode)
+            : Str::limit(Str::upper(Str::slug($cleanName, '_')), 50, '');
+
+        if ($normalizedCode === '') {
+            $normalizedCode = 'TAG_'.strtoupper(Str::random(6));
+        }
+
+        $duplicateExists = Tag::withoutGlobalScopes()
+            ->where('company_id', $company->id)
+            ->where('code', $normalizedCode)
+            ->exists();
+
+        if ($duplicateExists) {
+            throw ValidationException::withMessages([
+                'code' => [__('company.tag_code_duplicate')],
+            ]);
+        }
+
+        $tag = Tag::withoutGlobalScopes()->create([
+            'company_id' => $company->id,
+            'code' => $normalizedCode,
+            'name' => $cleanName,
+            'badge_color' => strtoupper((string) ($validated['badge_color'] ?? '#6B7280')),
+        ]);
+
+        if ($request->wantsJson()) {
+            return response()->json([
+                'success' => true,
+                'message' => __('company.tag_created_successfully'),
+                'tag' => $tag,
+            ], 201);
+        }
+
+        return redirect()
+            ->route('settings.company')
+            ->with('success', __('company.tag_created_successfully'));
+    }
+
+    /**
+     * Update an existing employee tag for the active company (Admin HR+ only).
+     */
+    public function updateTag(Request $request, Tag $tag): RedirectResponse|JsonResponse
+    {
+        $user = $request->user();
+        if (! $user || ! $user->isAdminOrAbove()) {
+            abort(403);
+        }
+
+        $company = $this->resolveActiveCompany($request);
+        if (! $company || (int) $tag->company_id !== (int) $company->id) {
+            abort(403);
+        }
+
+        $validated = $request->validate([
+            'name' => ['required', 'string', 'max:100'],
+            'code' => ['nullable', 'string', 'max:50', 'regex:/^[A-Za-z0-9_-]+$/'],
+            'badge_color' => ['nullable', 'string', 'regex:/^#[0-9A-Fa-f]{6}$/'],
+        ]);
+
+        $cleanName = trim($validated['name']);
+        $rawCode = trim((string) ($validated['code'] ?? ''));
+        $normalizedCode = $rawCode !== '' ? strtoupper($rawCode) : $tag->code;
+
+        $duplicateExists = Tag::withoutGlobalScopes()
+            ->where('company_id', $company->id)
+            ->where('code', $normalizedCode)
+            ->where('id', '!=', $tag->id)
+            ->exists();
+
+        if ($duplicateExists) {
+            throw ValidationException::withMessages([
+                'code' => [__('company.tag_code_duplicate')],
+            ]);
+        }
+
+        $tag->update([
+            'code' => $normalizedCode,
+            'name' => $cleanName,
+            'badge_color' => strtoupper((string) ($validated['badge_color'] ?? $tag->badge_color ?? '#6B7280')),
+        ]);
+
+        if ($request->wantsJson()) {
+            return response()->json([
+                'success' => true,
+                'message' => __('company.tag_updated_successfully'),
+                'tag' => $tag->fresh(),
+            ]);
+        }
+
+        return redirect()
+            ->route('settings.company')
+            ->with('success', __('company.tag_updated_successfully'));
+    }
+
+    /**
+     * Delete an existing employee tag for the active company (Admin HR+ only).
+     */
+    public function destroyTag(Request $request, Tag $tag): RedirectResponse|JsonResponse
+    {
+        $user = $request->user();
+        if (! $user || ! $user->isAdminOrAbove()) {
+            abort(403);
+        }
+
+        $company = $this->resolveActiveCompany($request);
+        if (! $company || (int) $tag->company_id !== (int) $company->id) {
+            abort(403);
+        }
+
+        DB::transaction(function () use ($tag): void {
+            $tag->employees()->detach();
+            $tag->delete();
+        });
+
+        if ($request->wantsJson()) {
+            return response()->json([
+                'success' => true,
+                'message' => __('company.tag_deleted_successfully'),
+            ]);
+        }
+
+        return redirect()
+            ->route('settings.company')
+            ->with('success', __('company.tag_deleted_successfully'));
+    }
+
+    /**
      * Resolve timezone-safe clock_in_at boundaries for a calendar date in the company's timezone.
      *
      * @return array{0: Carbon, 1: Carbon}
@@ -431,6 +598,7 @@ class CompanySettingsController extends Controller
             'accent_color' => ['nullable', 'string', 'max:20'],
             'allowed_email_domain' => ['nullable', 'string', 'max:100'],
             'photo_retention_months' => ['nullable', 'integer', Rule::in([1, 3, 6, 12])],
+            'auto_logout_minutes' => ['nullable', 'integer', 'min:5', 'max:1440'],
             'storage_limit_mb' => ['nullable', 'integer', 'min:10', 'max:1048576'],
         ]);
 
@@ -449,6 +617,7 @@ class CompanySettingsController extends Controller
             'accent_color' => $validated['accent_color'] ?? '#004F9F',
             'allowed_email_domain' => $validated['allowed_email_domain'] ?? null,
             'photo_retention_months' => (int) ($validated['photo_retention_months'] ?? 3),
+            'auto_logout_minutes' => (int) ($validated['auto_logout_minutes'] ?? 30),
             'storage_limit_mb' => (int) ($validated['storage_limit_mb'] ?? 1024),
             'is_active' => true,
         ]);

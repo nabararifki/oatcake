@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v1.1.0] - 2026-11-26
+
+### Added
+- **Ekspor Laporan Presensi CSV (Payroll Export Streaming)**: Ekspor laporan kehadiran ke format CSV berbasis streaming $O(1)$ yang kompatibel dengan peranti lunak payroll tanpa membebani memori server.
+- **Tipe Cuti *Extra Off* (EO)**: Penambahan jenis cuti kompensasi *Extra Off* (`EO`) terintegrasi dengan alur pengajuan cuti dan kalender roster.
+- **Multi-Tenant Auto-Logout**: Kebijakan batas waktu sesi tidak aktif (*idle session timeout*) yang dapat dikonfigurasi per perusahaan (`auto_logout_minutes`) dengan penegakan sisi klien (`idle-timeout.js`) dan middleware server (`EnforceTenantSessionTimeout`).
+- **Filter Direktori Staf**: Penambahan filter pencarian dan penyaringan direktori staf yang lebih granular untuk mempermudah manajemen personel.
+- **Manajemen Shift Aman (Edit & *Soft Delete*)**: Penambahan mekanisme penyuntingan dan penghapusan lunak (*soft delete*) pada master shift (`ShiftController`) tanpa merusak histori jadwal kerja.
+- **Integrasi Sistem Tag (Casual, Daily Worker)**: Penambahan dan penyemaian tag default operasional (*Casual*, *Daily Worker*) untuk klasifikasi fleksibel tenaga kerja.
+
+### Changed
+- **Peningkatan UI/UX — Mode Kuas (*Click-to-Assign*) Roster**: Penambahan mode kuas interaktif untuk menugaskan shift dengan cepat melalui klik langsung pada sel matriks roster.
+- **Peningkatan UI/UX — *Searchable Dropdown* (ComboBox) & Modal Panduan Hierarki Peran**: Implementasi komponen `searchable-select` dan `manager-combobox` untuk pemilihan Atasan dan Peran secara cepat, disertai Modal Panduan Hierarki Peran dinamis pada manajemen staf.
+- **Peningkatan UI/UX — *Front Camera Default* Presensi**: Penetapan kamera depan secara default saat pengambilan swafoto presensi untuk kelancaran operasional lapangan.
+- **Peningkatan Arsitektur & Keamanan — Re-Hierarki Peran (Admin HR & Admin Staff)**: Pembaruan struktur RBAC dengan pemisahan peran *Admin HR* dan *Admin Staff* beserta penyelarasan seluruh kebijakan otorisasi.
+- **Peningkatan Arsitektur & Keamanan — Alur Persetujuan Cuti Dinamis untuk HOD**: Penyesuaian alur otorisasi persetujuan cuti secara dinamis bagi *Head of Department* (HOD) agar selaras dengan struktur hierarki departemen.
+- **Peningkatan Arsitektur & Keamanan — Penerapan SSOT (*Single Source of Truth*) pada SPK SMART**: Penyelarasan sumber data dan logika kalkulasi SPK metode SMART menjadi satu sumber kebenaran (*Single Source of Truth*) yang konsisten.
+- **Kepatuhan & Perluasan Mode Debug SPK**: Penghapusan istilah berhak cipta pihak ketiga menjadi istilah generik (*Payroll Export*) serta perluasan akses Mode Debug SPK SMART untuk peran *Super User*.
+
 ## [v1.0.0-rc] - 2026-11-19
 
 ### Added

@@ -277,7 +277,7 @@ class StaffProvisioningTest extends TestCase
             'username' => 'hr_admin_novotel',
             'email' => 'hr.admin@novotel-yia.com',
             'password' => Hash::make('Password123!'),
-            'role' => 'admin',
+            'role' => 'admin_hr',
             'is_active' => true,
         ]);
 

@@ -27,7 +27,7 @@
                     </button>
                 @endif
 
-                @if ($canDebugSmart ?? false)
+                @if (($canDebugSmart ?? false) && in_array(auth()->user()?->role, ['super_admin', 'super_user'], true))
                     <button type="button"
                             @click="$dispatch('open-modal', 'smart-debug-modal')"
                             class="inline-flex items-center gap-1.5 rounded-xl border border-amber-500/40 bg-amber-500/10 px-3.5 py-2 text-xs font-semibold text-amber-800 dark:text-amber-300 hover:bg-amber-500/20 transition cursor-pointer">
@@ -61,12 +61,14 @@
     </x-slot>
 
     @php
-        $leaveTypesPayload = $leaveTypes->map(function ($lt) use ($alQuota, $dpQuota) {
+        $leaveTypesPayload = $leaveTypes->map(function ($lt) use ($alQuota, $dpQuota, $eoQuota) {
             $avail = null;
             if ($lt->code === 'AL') {
                 $avail = $alQuota['available_balance'];
             } elseif ($lt->code === 'DP') {
                 $avail = $dpQuota['available_balance'];
+            } elseif ($lt->code === 'EO') {
+                $avail = $eoQuota['available_balance'];
             }
 
             return [
@@ -111,6 +113,7 @@
              csrfToken: {{ Js::from(csrf_token()) }},
              debugDepartments: {{ Js::from($debugDepartmentsList ?? []) }},
              debugRequests: {{ Js::from($debugRequestsList ?? []) }},
+             liveSmartScores: {{ Js::from($liveSmartMetrics ?? []) }},
          })">
 
         @if (session('success'))
@@ -127,9 +130,9 @@
             </div>
         @endif
 
-        <!-- Baris Kartu Ringkasan Kuota Karyawan (AL & DP) -->
+        <!-- Baris Kartu Ringkasan Kuota Karyawan (AL, DP & EO) -->
         @if ($employee !== null)
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <!-- Kartu Cuti Tahunan (AL) -->
                 <div class="rounded-2xl border border-line bg-surface p-5 shadow-2xs space-y-3">
                     <div class="flex items-center justify-between">
@@ -200,6 +203,44 @@
                             <div class="text-2xs text-emerald-700 dark:text-emerald-300">{{ __('leave.label_available_balance') }}</div>
                             <div class="mt-1 text-lg font-mono font-bold text-emerald-700 dark:text-emerald-300">
                                 {{ (int) $dpQuota['available_balance'] }}
+                                <span class="text-2xs font-sans font-normal">{{ __('leave.days_unit') }}</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Kartu Extra Off (EO) -->
+                <div class="rounded-2xl border border-line bg-surface p-5 shadow-2xs space-y-3">
+                    <div class="flex items-center justify-between">
+                        <span class="text-xs font-bold uppercase tracking-wider text-ink-muted">
+                            {{ __('leave.card_eo_title') }}
+                        </span>
+                        <span class="inline-flex items-center rounded-md bg-sky-500/10 px-2.5 py-0.5 text-2xs font-mono font-bold text-sky-700 dark:text-sky-300 border border-sky-500/20">
+                            EO
+                        </span>
+                    </div>
+
+                    <div class="grid grid-cols-3 gap-3 pt-1">
+                        <div class="rounded-xl bg-surface-muted/60 border border-line p-3">
+                            <div class="text-2xs text-ink-muted">{{ __('leave.label_ledger_balance') }}</div>
+                            <div class="mt-1 text-lg font-mono font-bold text-ink">
+                                {{ (int) ($eoQuota['ledger_balance'] ?? 0) }}
+                                <span class="text-2xs font-sans font-normal text-ink-muted">{{ __('leave.days_unit') }}</span>
+                            </div>
+                        </div>
+
+                        <div class="rounded-xl bg-amber-500/10 border border-amber-500/20 p-3">
+                            <div class="text-2xs text-amber-700 dark:text-amber-300">{{ __('leave.label_reserved_balance') }}</div>
+                            <div class="mt-1 text-lg font-mono font-bold text-amber-700 dark:text-amber-300">
+                                {{ (int) ($eoQuota['reserved_days'] ?? 0) }}
+                                <span class="text-2xs font-sans font-normal">{{ __('leave.days_unit') }}</span>
+                            </div>
+                        </div>
+
+                        <div class="rounded-xl bg-emerald-500/10 border border-emerald-500/20 p-3">
+                            <div class="text-2xs text-emerald-700 dark:text-emerald-300">{{ __('leave.label_available_balance') }}</div>
+                            <div class="mt-1 text-lg font-mono font-bold text-emerald-700 dark:text-emerald-300">
+                                {{ (int) ($eoQuota['available_balance'] ?? 0) }}
                                 <span class="text-2xs font-sans font-normal">{{ __('leave.days_unit') }}</span>
                             </div>
                         </div>
@@ -333,8 +374,9 @@
 
                 @forelse ($leaveRequests as $req)
                     @php
-                        $canTier1 = $req->status === 'pending_manager' && auth()->user()->can('approveTier1', $req);
-                        $canTier2 = $req->status === 'pending_hr' && auth()->user()->can('approveTier2', $req);
+                        $isHodReq = $req->isHodApplicant();
+                        $canTier1 = $req->canBeApprovedTier1() && auth()->user()->can('approveTier1', $req);
+                        $canTier2 = $req->canBeApprovedTier2() && auth()->user()->can('approveTier2', $req);
                         $canRejectReq = $req->isPending() && auth()->user()->can('reject', $req);
                         $canEditReq = $req->canBeEdited() && auth()->user()->can('update', $req);
                         $canCancelReq = $req->canBeCancelled() && auth()->user()->can('cancel', $req);
@@ -383,20 +425,29 @@
                             <td class="whitespace-nowrap">
                                 <div class="flex items-center gap-2">
                                     @php
-                                        $scoreVal = $req->smart_score !== null ? (float) $req->smart_score : null;
+                                        $liveMetric = $liveSmartMetrics[$req->id] ?? null;
+                                        $scoreVal = $liveMetric !== null
+                                            ? (float) $liveMetric['smart_score']
+                                            : ($req->smart_score !== null ? (float) $req->smart_score : null);
                                     @endphp
 
                                     @if ($scoreVal !== null)
                                         @if ($scoreVal >= 70.0)
-                                            <span class="inline-flex items-center rounded-md bg-emerald-500/10 px-2 py-0.5 text-2xs font-mono font-bold text-emerald-700 dark:text-emerald-300 border border-emerald-500/30">
+                                            <span class="inline-flex items-center rounded-md bg-emerald-500/10 px-2 py-0.5 text-2xs font-mono font-bold text-emerald-700 dark:text-emerald-300 border border-emerald-500/30"
+                                                  :class="getDisplayScoreMeta({{ $req->id }}, {{ Js::from($scoreVal) }})?.badgeClass"
+                                                  x-text="(() => { const m = getDisplayScoreMeta({{ $req->id }}, {{ Js::from($scoreVal) }}); return m ? (m.scoreText + ' \u2022 ' + m.label) : ''; })()">
                                                 {{ number_format($scoreVal, 2) }} &bull; {{ __('leave.smart_rec_recommended') }}
                                             </span>
                                         @elseif ($scoreVal >= 50.0)
-                                            <span class="inline-flex items-center rounded-md bg-amber-500/10 px-2 py-0.5 text-2xs font-mono font-bold text-amber-700 dark:text-amber-300 border border-amber-500/30">
+                                            <span class="inline-flex items-center rounded-md bg-amber-500/10 px-2 py-0.5 text-2xs font-mono font-bold text-amber-700 dark:text-amber-300 border border-amber-500/30"
+                                                  :class="getDisplayScoreMeta({{ $req->id }}, {{ Js::from($scoreVal) }})?.badgeClass"
+                                                  x-text="(() => { const m = getDisplayScoreMeta({{ $req->id }}, {{ Js::from($scoreVal) }}); return m ? (m.scoreText + ' \u2022 ' + m.label) : ''; })()">
                                                 {{ number_format($scoreVal, 2) }} &bull; {{ __('leave.smart_rec_caution') }}
                                             </span>
                                         @else
-                                            <span class="inline-flex items-center rounded-md bg-red-500/10 px-2 py-0.5 text-2xs font-mono font-bold text-red-700 dark:text-red-300 border border-red-500/30">
+                                            <span class="inline-flex items-center rounded-md bg-red-500/10 px-2 py-0.5 text-2xs font-mono font-bold text-red-700 dark:text-red-300 border border-red-500/30"
+                                                  :class="getDisplayScoreMeta({{ $req->id }}, {{ Js::from($scoreVal) }})?.badgeClass"
+                                                  x-text="(() => { const m = getDisplayScoreMeta({{ $req->id }}, {{ Js::from($scoreVal) }}); return m ? (m.scoreText + ' \u2022 ' + m.label) : ''; })()">
                                                 {{ number_format($scoreVal, 2) }} &bull; {{ __('leave.smart_rec_high_risk') }}
                                             </span>
                                         @endif
@@ -412,6 +463,7 @@
                                                     approveTier2Url: {{ Js::from(route('leave.approveTier2', $req)) }},
                                                     canReject: {{ Js::from($canRejectReq) }},
                                                     rejectUrl: {{ Js::from(route('leave.reject', $req)) }},
+                                                    isHodApplicant: {{ Js::from($isHodReq) }},
                                                 })"
                                                 class="inline-flex items-center gap-1 rounded-lg border border-line bg-surface-muted px-2 py-0.5 text-2xs font-semibold text-ink hover:bg-surface transition cursor-pointer">
                                             <span>{{ __('leave.btn_smart_analysis') }}</span>
@@ -469,7 +521,7 @@
                                         @csrf
                                         <button type="submit"
                                                 class="rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1 text-2xs font-semibold text-emerald-700 dark:text-emerald-300 hover:bg-emerald-500/20 transition cursor-pointer">
-                                            {{ __('leave.btn_approve_tier1') }}
+                                            {{ $isHodReq ? __('leave.btn_approve_tier1_hod') : __('leave.btn_approve_tier1') }}
                                         </button>
                                     </form>
                                 @endif
@@ -479,7 +531,7 @@
                                         @csrf
                                         <button type="submit"
                                                 class="rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1 text-2xs font-semibold text-emerald-700 dark:text-emerald-300 hover:bg-emerald-500/20 transition cursor-pointer">
-                                            {{ __('leave.btn_approve_tier2') }}
+                                            {{ $isHodReq ? __('leave.btn_approve_tier2_hod') : __('leave.btn_approve_tier2') }}
                                         </button>
                                     </form>
                                 @endif
@@ -1021,7 +1073,8 @@
                                 <form method="POST" :action="smartAnalysisActions.approveTier1Url" class="inline">
                                     @csrf
                                     <button type="submit"
-                                            class="rounded-xl bg-emerald-600 px-3.5 py-2 text-xs font-bold text-white shadow-sm hover:bg-emerald-700 transition cursor-pointer">
+                                            class="rounded-xl bg-emerald-600 px-3.5 py-2 text-xs font-bold text-white shadow-sm hover:bg-emerald-700 transition cursor-pointer"
+                                            x-text="smartAnalysisActions.isHodApplicant ? '{{ __('leave.btn_approve_tier1_hod') }}' : '{{ __('leave.btn_approve_tier1') }}'">
                                         {{ __('leave.btn_approve_tier1') }}
                                     </button>
                                 </form>
@@ -1031,7 +1084,8 @@
                                 <form method="POST" :action="smartAnalysisActions.approveTier2Url" class="inline">
                                     @csrf
                                     <button type="submit"
-                                            class="rounded-xl bg-emerald-600 px-3.5 py-2 text-xs font-bold text-white shadow-sm hover:bg-emerald-700 transition cursor-pointer">
+                                            class="rounded-xl bg-emerald-600 px-3.5 py-2 text-xs font-bold text-white shadow-sm hover:bg-emerald-700 transition cursor-pointer"
+                                            x-text="smartAnalysisActions.isHodApplicant ? '{{ __('leave.btn_approve_tier2_hod') }}' : '{{ __('leave.btn_approve_tier2') }}'">
                                         {{ __('leave.btn_approve_tier2') }}
                                     </button>
                                 </form>
@@ -1081,7 +1135,7 @@
 
                     <!-- Ringkasan Saldo Real-Time Karyawan Terpilih -->
                     <template x-if="ledgerData && ledgerData.balances">
-                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
                             <div class="rounded-xl border border-line bg-surface-muted/60 p-3 flex items-center justify-between">
                                 <div>
                                     <div class="text-2xs uppercase text-ink-muted font-semibold">{{ __('leave.card_al_title') }}</div>
@@ -1109,6 +1163,21 @@
                                     <div class="text-2xs text-emerald-700 dark:text-emerald-300">{{ __('leave.label_available_balance') }}</div>
                                     <div class="text-base font-mono font-bold text-emerald-700 dark:text-emerald-300"
                                          x-text="`${Math.round(Number(ledgerData.balances.DP?.available_balance || 0))} {{ __('leave.days_unit') }}`"></div>
+                                </div>
+                            </div>
+
+                            <div class="rounded-xl border border-line bg-surface-muted/60 p-3 flex items-center justify-between">
+                                <div>
+                                    <div class="text-2xs uppercase text-ink-muted font-semibold">{{ __('leave.card_eo_title') }}</div>
+                                    <div class="text-xs text-ink-muted">
+                                        {{ __('leave.label_ledger_balance') }}:
+                                        <span class="font-mono font-bold text-ink" x-text="Math.round(Number(ledgerData.balances.EO?.ledger_balance || 0))"></span>
+                                    </div>
+                                </div>
+                                <div class="text-right">
+                                    <div class="text-2xs text-emerald-700 dark:text-emerald-300">{{ __('leave.label_available_balance') }}</div>
+                                    <div class="text-base font-mono font-bold text-emerald-700 dark:text-emerald-300"
+                                         x-text="`${Math.round(Number(ledgerData.balances.EO?.available_balance || 0))} {{ __('leave.days_unit') }}`"></div>
                                 </div>
                             </div>
                         </div>
@@ -1418,7 +1487,7 @@
             </x-ui.modal>
         @endif
 
-        @if ($canDebugSmart ?? false)
+        @if (($canDebugSmart ?? false) && in_array(auth()->user()?->role, ['super_admin', 'super_user'], true))
             @php
                 $debugCriteriaMeta = [
                     'C1' => [
@@ -1857,7 +1926,9 @@
                     approveTier2Url: '',
                     canReject: false,
                     rejectUrl: '',
+                    isHodApplicant: false,
                 },
+                liveSmartScores: config.liveSmartScores || {},
                 smartWeightsByDept: config.smartWeightsByDept || {},
                 selectedWeightDeptId: String(config.defaultWeightDeptId || ''),
                 weightForm: { C1: 30, C2: 20, C3: 15, C4: 15, C5: 20 },
@@ -2126,6 +2197,42 @@
                     }
                     this.debugForm.min_staff_per_shift = Number(req.min_staff_per_shift || 2);
                     this.debugForm.total_department_staff = Number(req.total_department_staff || 5);
+                    this.debugForm.candidates = [];
+                },
+
+                getDisplayScore(reqId, fallbackScore = null) {
+                    const entry = this.liveSmartScores[reqId];
+                    if (entry && entry.smart_score !== undefined && entry.smart_score !== null) {
+                        return Number(entry.smart_score);
+                    }
+                    return fallbackScore !== null && fallbackScore !== undefined ? Number(fallbackScore) : null;
+                },
+
+                getDisplayScoreMeta(reqId, fallbackScore = null) {
+                    const score = this.getDisplayScore(reqId, fallbackScore);
+                    if (score === null || Number.isNaN(score)) {
+                        return null;
+                    }
+                    const entry = this.liveSmartScores[reqId];
+                    if (score >= 70.0) {
+                        return {
+                            scoreText: score.toFixed(2),
+                            label: entry?.recommendation_label || @js(__('leave.smart_rec_recommended')),
+                            badgeClass: 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border-emerald-500/30',
+                        };
+                    }
+                    if (score >= 50.0) {
+                        return {
+                            scoreText: score.toFixed(2),
+                            label: entry?.recommendation_label || @js(__('leave.smart_rec_caution')),
+                            badgeClass: 'bg-amber-500/10 text-amber-700 dark:text-amber-300 border-amber-500/30',
+                        };
+                    }
+                    return {
+                        scoreText: score.toFixed(2),
+                        label: entry?.recommendation_label || @js(__('leave.smart_rec_high_risk')),
+                        badgeClass: 'bg-red-500/10 text-red-700 dark:text-red-300 border-red-500/30',
+                    };
                 },
 
                 async fetchEffectiveDays() {
@@ -2230,6 +2337,7 @@
                             approveTier2Url: options.approveTier2Url || '',
                             canReject: Boolean(options.canReject),
                             rejectUrl: options.rejectUrl || '',
+                            isHodApplicant: Boolean(options.isHodApplicant),
                         }
                         : {
                             canApproveTier1: false,
@@ -2238,6 +2346,7 @@
                             approveTier2Url: '',
                             canReject: false,
                             rejectUrl: '',
+                            isHodApplicant: false,
                         };
 
                     this.loadingAnalysis = true;
@@ -2253,7 +2362,26 @@
                         });
                         if (response.ok) {
                             const json = await response.json();
-                            this.smartAnalysisData = json.data || json;
+                            const data = json.data || json;
+                            this.smartAnalysisData = data;
+                            if (data && data.target_request_id) {
+                                this.liveSmartScores[data.target_request_id] = {
+                                    smart_score: Number(data.smart_score || 0),
+                                    recommendation: data.recommendation,
+                                    recommendation_label: data.recommendation_label,
+                                };
+                            }
+                            if (data && Array.isArray(data.candidates)) {
+                                data.candidates.forEach(c => {
+                                    if (c && c.leave_request_id) {
+                                        this.liveSmartScores[c.leave_request_id] = {
+                                            smart_score: Number(c.smart_score || 0),
+                                            recommendation: c.recommendation,
+                                            recommendation_label: c.recommendation_label,
+                                        };
+                                    }
+                                });
+                            }
                         }
                     } catch (e) {
                         console.error('Failed to load SPK SMART analysis:', e);

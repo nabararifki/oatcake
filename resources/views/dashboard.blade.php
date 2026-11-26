@@ -104,6 +104,9 @@
                              errServerResponse: {{ Js::from(__('attendance.err_server_response')) }},
                              offlineAttendanceWarning: {{ Js::from(__('pwa.attendance_offline_warning')) }},
                              unscheduledDisabled: {{ Js::from(__('attendance.unscheduled_clock_in_disabled')) }},
+                             cameraFront: {{ Js::from(__('attendance.camera_front_label')) }},
+                             cameraRear: {{ Js::from(__('attendance.camera_rear_label')) }},
+                             errCameraUnavailable: {{ Js::from(__('attendance.err_camera_unavailable')) }},
                          }
                      })"
                      class="bg-surface border border-line rounded-2xl p-4 sm:p-5 shadow-sm space-y-4">
@@ -260,6 +263,11 @@
                         <span class="inline-flex items-center gap-1.5 rounded-full bg-surface-muted border border-line px-3 py-1 text-2xs font-semibold text-ink">
                             <span class="text-ink-muted">{{ __('dashboard.dp_balance_label') }}:</span>
                             <span class="font-mono font-bold text-ink">{{ (int) ($dpBalance ?? 0) }} {{ __('dashboard.days_short') }}</span>
+                        </span>
+
+                        <span class="inline-flex items-center gap-1.5 rounded-full bg-surface-muted border border-line px-3 py-1 text-2xs font-semibold text-ink">
+                            <span class="text-ink-muted">{{ __('dashboard.eo_balance_label') }}:</span>
+                            <span class="font-mono font-bold text-ink">{{ (int) ($eoBalance ?? 0) }} {{ __('dashboard.days_short') }}</span>
                         </span>
                     </div>
 
@@ -427,15 +435,20 @@
                         </div>
 
                         <div class="space-y-2">
-                            <label class="block text-xs font-semibold text-ink">
-                                {{ __('attendance.take_selfie') }} <span class="text-red-500">*</span>
-                            </label>
+                            <div class="flex items-center justify-between gap-2">
+                                <label class="block text-xs font-semibold text-ink">
+                                    {{ __('attendance.take_selfie') }} <span class="text-red-500">*</span>
+                                </label>
+                                <span x-show="cameraActive && cameraContext === 'clock-in' && !selfieInPreviewUrl"
+                                      x-cloak
+                                      class="inline-flex items-center rounded-md border border-line bg-surface-muted px-2 py-0.5 text-2xs font-semibold text-ink-muted"
+                                      x-text="cameraFacingMode === 'user' ? i18n.cameraFront : i18n.cameraRear"></span>
+                            </div>
 
                             <input type="file"
                                    name="photo"
                                    accept="image/*"
                                    capture="user"
-                                   required
                                    @change="handleSelfieInCapture($event)"
                                    class="sr-only"
                                    id="clock-in-camera-input">
@@ -446,23 +459,67 @@
                                         <img :src="selfieInPreviewUrl"
                                              alt="{{ __('attendance.selfie_preview_alt') }}"
                                              class="mx-auto max-h-56 rounded-xl object-cover border border-line shadow-sm" />
-                                        <label for="clock-in-camera-input"
-                                               class="inline-flex items-center gap-1.5 rounded-lg border border-line bg-surface px-3 py-1.5 text-xs font-semibold text-ink hover:bg-surface-muted cursor-pointer transition">
-                                            <span>{{ __('attendance.retake_selfie') }}</span>
-                                        </label>
+                                        <div class="flex flex-wrap items-center justify-center gap-2">
+                                            <button type="button"
+                                                    @click="retakeSelfie('clock-in')"
+                                                    class="inline-flex items-center gap-1.5 rounded-lg border border-line bg-surface px-3 py-1.5 text-xs font-semibold text-ink hover:bg-surface-muted cursor-pointer transition">
+                                                <span>{{ __('attendance.retake_selfie') }}</span>
+                                            </button>
+                                            <label for="clock-in-camera-input"
+                                                   class="inline-flex items-center gap-1.5 rounded-lg border border-line bg-surface-muted px-3 py-1.5 text-2xs font-medium text-ink-muted hover:text-ink cursor-pointer transition">
+                                                <span>{{ __('attendance.camera_fallback_file') }}</span>
+                                            </label>
+                                        </div>
                                     </div>
                                 </template>
 
-                                <template x-if="!selfieInPreviewUrl">
-                                    <div class="py-6 space-y-2.5">
+                                <div x-show="!selfieInPreviewUrl && cameraActive && cameraContext === 'clock-in'" x-cloak class="space-y-3">
+                                    <div class="relative mx-auto max-w-sm overflow-hidden rounded-xl border border-line bg-black aspect-[4/3]">
+                                        <video x-ref="clockInVideo"
+                                               autoplay
+                                               playsinline
+                                               muted
+                                               :class="cameraFacingMode === 'user' ? '-scale-x-100' : ''"
+                                               class="w-full h-full object-cover"></video>
+                                    </div>
+                                    <div class="flex flex-wrap items-center justify-center gap-2">
+                                        <button type="button"
+                                                @click="captureCameraPhoto('clock-in')"
+                                                class="inline-flex items-center gap-2 rounded-xl bg-accent px-4 py-2 text-xs font-bold text-white shadow-sm hover:opacity-95 cursor-pointer transition">
+                                            <span>{{ __('attendance.btn_capture_photo') }}</span>
+                                        </button>
+                                        <button type="button"
+                                                @click="flipCamera()"
+                                                class="inline-flex items-center gap-1.5 rounded-xl border border-line bg-surface px-3 py-2 text-xs font-semibold text-ink hover:bg-surface-muted cursor-pointer transition">
+                                            <span>{{ __('attendance.btn_flip_camera') }}</span>
+                                        </button>
                                         <label for="clock-in-camera-input"
-                                               class="inline-flex items-center gap-2 rounded-xl bg-accent px-4 py-2.5 text-xs font-bold text-white shadow-sm hover:opacity-95 cursor-pointer transition">
-                                            <svg class="w-4 h-4 shrink-0" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
-                                                <path stroke-linecap="round" stroke-linejoin="round" d="M6.827 6.175A2.31 2.31 0 0 1 5.186 7.23c-.38.054-.757.112-1.134.175C2.999 7.58 2.25 8.507 2.25 9.574V18a2.25 2.25 0 0 0 2.25 2.25h15A2.25 2.25 0 0 0 21.75 18V9.574c0-1.067-.75-1.994-1.802-2.169a47.865 47.865 0 0 0-1.134-.175 2.31 2.31 0 0 1-1.64-1.055l-.822-1.316a2.192 2.192 0 0 0-1.736-1.039 48.774 48.774 0 0 0-5.232 0 2.192 2.192 0 0 0-1.736 1.039l-.821 1.316Z" />
-                                                <path stroke-linecap="round" stroke-linejoin="round" d="M16.5 12.75a4.5 4.5 0 1 1-9 0 4.5 4.5 0 0 1 9 0ZM18.75 10.5h.008v.008h-.008V10.5Z" />
-                                            </svg>
-                                            <span>{{ __('attendance.take_selfie') }}</span>
+                                               class="inline-flex items-center gap-1.5 rounded-xl border border-line bg-surface-muted px-3 py-2 text-2xs font-medium text-ink-muted hover:text-ink cursor-pointer transition">
+                                            <span>{{ __('attendance.camera_fallback_file') }}</span>
                                         </label>
+                                    </div>
+                                </div>
+
+                                <template x-if="!selfieInPreviewUrl && (!cameraActive || cameraContext !== 'clock-in')">
+                                    <div class="py-6 space-y-2.5">
+                                        <p x-show="cameraError" x-cloak x-text="cameraError" class="text-2xs font-medium text-amber-700 dark:text-amber-300"></p>
+                                        <div class="flex flex-wrap items-center justify-center gap-2">
+                                            <button type="button"
+                                                    x-show="cameraSupported"
+                                                    @click="startCamera('clock-in', cameraFacingMode)"
+                                                    class="inline-flex items-center gap-2 rounded-xl bg-accent px-4 py-2.5 text-xs font-bold text-white shadow-sm hover:opacity-95 cursor-pointer transition">
+                                                <svg class="w-4 h-4 shrink-0" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+                                                    <path stroke-linecap="round" stroke-linejoin="round" d="M6.827 6.175A2.31 2.31 0 0 1 5.186 7.23c-.38.054-.757.112-1.134.175C2.999 7.58 2.25 8.507 2.25 9.574V18a2.25 2.25 0 0 0 2.25 2.25h15A2.25 2.25 0 0 0 21.75 18V9.574c0-1.067-.75-1.994-1.802-2.169a47.865 47.865 0 0 0-1.134-.175 2.31 2.31 0 0 1-1.64-1.055l-.822-1.316a2.192 2.192 0 0 0-1.736-1.039 48.774 48.774 0 0 0-5.232 0 2.192 2.192 0 0 0-1.736 1.039l-.821 1.316Z" />
+                                                    <path stroke-linecap="round" stroke-linejoin="round" d="M16.5 12.75a4.5 4.5 0 1 1-9 0 4.5 4.5 0 0 1 9 0ZM18.75 10.5h.008v.008h-.008V10.5Z" />
+                                                </svg>
+                                                <span>{{ __('attendance.take_selfie') }}</span>
+                                            </button>
+                                            <label for="clock-in-camera-input"
+                                                   :class="cameraSupported ? 'border border-line bg-surface text-ink hover:bg-surface-muted' : 'bg-accent text-white hover:opacity-95 shadow-sm'"
+                                                   class="inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-xs font-bold cursor-pointer transition">
+                                                <span x-text="cameraSupported ? @js(__('attendance.camera_fallback_file')) : @js(__('attendance.take_selfie'))"></span>
+                                            </label>
+                                        </div>
                                         <p class="text-2xs text-ink-muted">
                                             {{ __('attendance.camera_direct_hint') }}
                                         </p>
@@ -473,7 +530,7 @@
 
                         <div class="pt-2 flex items-center justify-end gap-2">
                             <button type="button"
-                                    @click="$dispatch('close-modal', 'clock-in-selfie-modal')"
+                                    @click="stopCamera(); $dispatch('close-modal', 'clock-in-selfie-modal')"
                                     :disabled="submitting"
                                     class="rounded-xl border border-line bg-surface px-4 py-2 text-xs font-semibold text-ink hover:bg-surface-muted transition cursor-pointer">
                                 {{ __('common.cancel') }}
@@ -530,15 +587,20 @@
                         </div>
 
                         <div class="space-y-2">
-                            <label class="block text-xs font-semibold text-ink">
-                                {{ __('attendance.take_selfie') }} <span class="text-red-500">*</span>
-                            </label>
+                            <div class="flex items-center justify-between gap-2">
+                                <label class="block text-xs font-semibold text-ink">
+                                    {{ __('attendance.take_selfie') }} <span class="text-red-500">*</span>
+                                </label>
+                                <span x-show="cameraActive && cameraContext === 'clock-out' && !selfieOutPreviewUrl"
+                                      x-cloak
+                                      class="inline-flex items-center rounded-md border border-line bg-surface-muted px-2 py-0.5 text-2xs font-semibold text-ink-muted"
+                                      x-text="cameraFacingMode === 'user' ? i18n.cameraFront : i18n.cameraRear"></span>
+                            </div>
 
                             <input type="file"
                                    name="photo"
                                    accept="image/*"
                                    capture="user"
-                                   required
                                    @change="handleSelfieOutCapture($event)"
                                    class="sr-only"
                                    id="clock-out-camera-input">
@@ -549,23 +611,67 @@
                                         <img :src="selfieOutPreviewUrl"
                                              alt="{{ __('attendance.selfie_preview_alt') }}"
                                              class="mx-auto max-h-56 rounded-xl object-cover border border-line shadow-sm" />
-                                        <label for="clock-out-camera-input"
-                                               class="inline-flex items-center gap-1.5 rounded-lg border border-line bg-surface px-3 py-1.5 text-xs font-semibold text-ink hover:bg-surface-muted cursor-pointer transition">
-                                            <span>{{ __('attendance.retake_selfie') }}</span>
-                                        </label>
+                                        <div class="flex flex-wrap items-center justify-center gap-2">
+                                            <button type="button"
+                                                    @click="retakeSelfie('clock-out')"
+                                                    class="inline-flex items-center gap-1.5 rounded-lg border border-line bg-surface px-3 py-1.5 text-xs font-semibold text-ink hover:bg-surface-muted cursor-pointer transition">
+                                                <span>{{ __('attendance.retake_selfie') }}</span>
+                                            </button>
+                                            <label for="clock-out-camera-input"
+                                                   class="inline-flex items-center gap-1.5 rounded-lg border border-line bg-surface-muted px-3 py-1.5 text-2xs font-medium text-ink-muted hover:text-ink cursor-pointer transition">
+                                                <span>{{ __('attendance.camera_fallback_file') }}</span>
+                                            </label>
+                                        </div>
                                     </div>
                                 </template>
 
-                                <template x-if="!selfieOutPreviewUrl">
-                                    <div class="py-6 space-y-2.5">
+                                <div x-show="!selfieOutPreviewUrl && cameraActive && cameraContext === 'clock-out'" x-cloak class="space-y-3">
+                                    <div class="relative mx-auto max-w-sm overflow-hidden rounded-xl border border-line bg-black aspect-[4/3]">
+                                        <video x-ref="clockOutVideo"
+                                               autoplay
+                                               playsinline
+                                               muted
+                                               :class="cameraFacingMode === 'user' ? '-scale-x-100' : ''"
+                                               class="w-full h-full object-cover"></video>
+                                    </div>
+                                    <div class="flex flex-wrap items-center justify-center gap-2">
+                                        <button type="button"
+                                                @click="captureCameraPhoto('clock-out')"
+                                                class="inline-flex items-center gap-2 rounded-xl bg-accent px-4 py-2 text-xs font-bold text-white shadow-sm hover:opacity-95 cursor-pointer transition">
+                                            <span>{{ __('attendance.btn_capture_photo') }}</span>
+                                        </button>
+                                        <button type="button"
+                                                @click="flipCamera()"
+                                                class="inline-flex items-center gap-1.5 rounded-xl border border-line bg-surface px-3 py-2 text-xs font-semibold text-ink hover:bg-surface-muted cursor-pointer transition">
+                                            <span>{{ __('attendance.btn_flip_camera') }}</span>
+                                        </button>
                                         <label for="clock-out-camera-input"
-                                               class="inline-flex items-center gap-2 rounded-xl bg-accent px-4 py-2.5 text-xs font-bold text-white shadow-sm hover:opacity-95 cursor-pointer transition">
-                                            <svg class="w-4 h-4 shrink-0" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
-                                                <path stroke-linecap="round" stroke-linejoin="round" d="M6.827 6.175A2.31 2.31 0 0 1 5.186 7.23c-.38.054-.757.112-1.134.175C2.999 7.58 2.25 8.507 2.25 9.574V18a2.25 2.25 0 0 0 2.25 2.25h15A2.25 2.25 0 0 0 21.75 18V9.574c0-1.067-.75-1.994-1.802-2.169a47.865 47.865 0 0 0-1.134-.175 2.31 2.31 0 0 1-1.64-1.055l-.822-1.316a2.192 2.192 0 0 0-1.736-1.039 48.774 48.774 0 0 0-5.232 0 2.192 2.192 0 0 0-1.736 1.039l-.821 1.316Z" />
-                                                <path stroke-linecap="round" stroke-linejoin="round" d="M16.5 12.75a4.5 4.5 0 1 1-9 0 4.5 4.5 0 0 1 9 0ZM18.75 10.5h.008v.008h-.008V10.5Z" />
-                                            </svg>
-                                            <span>{{ __('attendance.take_selfie') }}</span>
+                                               class="inline-flex items-center gap-1.5 rounded-xl border border-line bg-surface-muted px-3 py-2 text-2xs font-medium text-ink-muted hover:text-ink cursor-pointer transition">
+                                            <span>{{ __('attendance.camera_fallback_file') }}</span>
                                         </label>
+                                    </div>
+                                </div>
+
+                                <template x-if="!selfieOutPreviewUrl && (!cameraActive || cameraContext !== 'clock-out')">
+                                    <div class="py-6 space-y-2.5">
+                                        <p x-show="cameraError" x-cloak x-text="cameraError" class="text-2xs font-medium text-amber-700 dark:text-amber-300"></p>
+                                        <div class="flex flex-wrap items-center justify-center gap-2">
+                                            <button type="button"
+                                                    x-show="cameraSupported"
+                                                    @click="startCamera('clock-out', cameraFacingMode)"
+                                                    class="inline-flex items-center gap-2 rounded-xl bg-accent px-4 py-2.5 text-xs font-bold text-white shadow-sm hover:opacity-95 cursor-pointer transition">
+                                                <svg class="w-4 h-4 shrink-0" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+                                                    <path stroke-linecap="round" stroke-linejoin="round" d="M6.827 6.175A2.31 2.31 0 0 1 5.186 7.23c-.38.054-.757.112-1.134.175C2.999 7.58 2.25 8.507 2.25 9.574V18a2.25 2.25 0 0 0 2.25 2.25h15A2.25 2.25 0 0 0 21.75 18V9.574c0-1.067-.75-1.994-1.802-2.169a47.865 47.865 0 0 0-1.134-.175 2.31 2.31 0 0 1-1.64-1.055l-.822-1.316a2.192 2.192 0 0 0-1.736-1.039 48.774 48.774 0 0 0-5.232 0 2.192 2.192 0 0 0-1.736 1.039l-.821 1.316Z" />
+                                                    <path stroke-linecap="round" stroke-linejoin="round" d="M16.5 12.75a4.5 4.5 0 1 1-9 0 4.5 4.5 0 0 1 9 0ZM18.75 10.5h.008v.008h-.008V10.5Z" />
+                                                </svg>
+                                                <span>{{ __('attendance.take_selfie') }}</span>
+                                            </button>
+                                            <label for="clock-out-camera-input"
+                                                   :class="cameraSupported ? 'border border-line bg-surface text-ink hover:bg-surface-muted' : 'bg-accent text-white hover:opacity-95 shadow-sm'"
+                                                   class="inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-xs font-bold cursor-pointer transition">
+                                                <span x-text="cameraSupported ? @js(__('attendance.camera_fallback_file')) : @js(__('attendance.take_selfie'))"></span>
+                                            </label>
+                                        </div>
                                         <p class="text-2xs text-ink-muted">
                                             {{ __('attendance.camera_direct_hint') }}
                                         </p>
@@ -588,7 +694,7 @@
 
                         <div class="pt-2 flex items-center justify-end gap-2">
                             <button type="button"
-                                    @click="$dispatch('close-modal', 'clock-out-selfie-modal')"
+                                    @click="stopCamera(); $dispatch('close-modal', 'clock-out-selfie-modal')"
                                     :disabled="submitting"
                                     class="rounded-xl border border-line bg-surface px-4 py-2 text-xs font-semibold text-ink hover:bg-surface-muted transition cursor-pointer">
                                 {{ __('common.cancel') }}
@@ -634,15 +740,20 @@
                         </div>
 
                         <div class="space-y-2">
-                            <label class="block text-xs font-semibold text-ink">
-                                {{ __('attendance.take_selfie') }} <span class="text-red-500">*</span>
-                            </label>
+                            <div class="flex items-center justify-between gap-2">
+                                <label class="block text-xs font-semibold text-ink">
+                                    {{ __('attendance.take_selfie') }} <span class="text-red-500">*</span>
+                                </label>
+                                <span x-show="cameraActive && cameraContext === 'outside' && !selfiePreviewUrl"
+                                      x-cloak
+                                      class="inline-flex items-center rounded-md border border-line bg-surface-muted px-2 py-0.5 text-2xs font-semibold text-ink-muted"
+                                      x-text="cameraFacingMode === 'user' ? i18n.cameraFront : i18n.cameraRear"></span>
+                            </div>
 
                             <input type="file"
                                    name="photo"
                                    accept="image/*"
                                    capture="user"
-                                   required
                                    @change="handlePhotoCapture($event)"
                                    class="sr-only"
                                    id="camera-capture-input">
@@ -653,19 +764,63 @@
                                         <img :src="selfiePreviewUrl"
                                              alt="{{ __('attendance.selfie_preview_alt') }}"
                                              class="mx-auto max-h-52 rounded-xl object-cover border border-line shadow-sm" />
-                                        <label for="camera-capture-input"
-                                               class="inline-flex items-center gap-1.5 rounded-lg border border-line bg-surface px-3 py-1.5 text-xs font-semibold text-ink hover:bg-surface-muted cursor-pointer transition">
-                                            <span>{{ __('attendance.retake_selfie') }}</span>
-                                        </label>
+                                        <div class="flex flex-wrap items-center justify-center gap-2">
+                                            <button type="button"
+                                                    @click="retakeSelfie('outside')"
+                                                    class="inline-flex items-center gap-1.5 rounded-lg border border-line bg-surface px-3 py-1.5 text-xs font-semibold text-ink hover:bg-surface-muted cursor-pointer transition">
+                                                <span>{{ __('attendance.retake_selfie') }}</span>
+                                            </button>
+                                            <label for="camera-capture-input"
+                                                   class="inline-flex items-center gap-1.5 rounded-lg border border-line bg-surface-muted px-3 py-1.5 text-2xs font-medium text-ink-muted hover:text-ink cursor-pointer transition">
+                                                <span>{{ __('attendance.camera_fallback_file') }}</span>
+                                            </label>
+                                        </div>
                                     </div>
                                 </template>
 
-                                <template x-if="!selfiePreviewUrl">
-                                    <div class="py-4 space-y-2.5">
+                                <div x-show="!selfiePreviewUrl && cameraActive && cameraContext === 'outside'" x-cloak class="space-y-3">
+                                    <div class="relative mx-auto max-w-sm overflow-hidden rounded-xl border border-line bg-black aspect-[4/3]">
+                                        <video x-ref="outsideVideo"
+                                               autoplay
+                                               playsinline
+                                               muted
+                                               :class="cameraFacingMode === 'user' ? '-scale-x-100' : ''"
+                                               class="w-full h-full object-cover"></video>
+                                    </div>
+                                    <div class="flex flex-wrap items-center justify-center gap-2">
+                                        <button type="button"
+                                                @click="captureCameraPhoto('outside')"
+                                                class="inline-flex items-center gap-2 rounded-xl bg-accent px-4 py-2 text-xs font-bold text-white shadow-sm hover:opacity-95 cursor-pointer transition">
+                                            <span>{{ __('attendance.btn_capture_photo') }}</span>
+                                        </button>
+                                        <button type="button"
+                                                @click="flipCamera()"
+                                                class="inline-flex items-center gap-1.5 rounded-xl border border-line bg-surface px-3 py-2 text-xs font-semibold text-ink hover:bg-surface-muted cursor-pointer transition">
+                                            <span>{{ __('attendance.btn_flip_camera') }}</span>
+                                        </button>
                                         <label for="camera-capture-input"
-                                               class="inline-flex items-center gap-2 rounded-xl bg-accent px-4 py-2.5 text-xs font-bold text-white shadow-sm hover:opacity-95 cursor-pointer transition">
-                                            <span>{{ __('attendance.take_selfie') }}</span>
+                                               class="inline-flex items-center gap-1.5 rounded-xl border border-line bg-surface-muted px-3 py-2 text-2xs font-medium text-ink-muted hover:text-ink cursor-pointer transition">
+                                            <span>{{ __('attendance.camera_fallback_file') }}</span>
                                         </label>
+                                    </div>
+                                </div>
+
+                                <template x-if="!selfiePreviewUrl && (!cameraActive || cameraContext !== 'outside')">
+                                    <div class="py-4 space-y-2.5">
+                                        <p x-show="cameraError" x-cloak x-text="cameraError" class="text-2xs font-medium text-amber-700 dark:text-amber-300"></p>
+                                        <div class="flex flex-wrap items-center justify-center gap-2">
+                                            <button type="button"
+                                                    x-show="cameraSupported"
+                                                    @click="startCamera('outside', cameraFacingMode)"
+                                                    class="inline-flex items-center gap-2 rounded-xl bg-accent px-4 py-2.5 text-xs font-bold text-white shadow-sm hover:opacity-95 cursor-pointer transition">
+                                                <span>{{ __('attendance.take_selfie') }}</span>
+                                            </button>
+                                            <label for="camera-capture-input"
+                                                   :class="cameraSupported ? 'border border-line bg-surface text-ink hover:bg-surface-muted' : 'bg-accent text-white hover:opacity-95 shadow-sm'"
+                                                   class="inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-xs font-bold cursor-pointer transition">
+                                                <span x-text="cameraSupported ? @js(__('attendance.camera_fallback_file')) : @js(__('attendance.take_selfie'))"></span>
+                                            </label>
+                                        </div>
                                         <p class="text-2xs text-ink-muted">
                                             {{ __('attendance.camera_direct_hint') }}
                                         </p>
@@ -719,7 +874,7 @@
 
                         <div class="pt-2 flex items-center justify-end gap-2">
                             <button type="button"
-                                    @click="$dispatch('close-modal', 'dashboard-outside-attendance-modal')"
+                                    @click="stopCamera(); $dispatch('close-modal', 'dashboard-outside-attendance-modal')"
                                     :disabled="submittingOutside"
                                     class="rounded-xl border border-line bg-surface px-4 py-2 text-xs font-semibold text-ink hover:bg-surface-muted transition cursor-pointer">
                                 {{ __('common.cancel') }}
@@ -779,13 +934,162 @@
                         clockOutNotes: '',
                         submittingOutside: false,
 
+                        cameraFacingMode: 'user',
+                        cameraActive: false,
+                        cameraContext: null,
+                        cameraStream: null,
+                        cameraError: '',
+                        cameraSupported: typeof navigator !== 'undefined' && Boolean(navigator.mediaDevices && navigator.mediaDevices.getUserMedia),
+
                         init() {
                             this.isOnline = typeof navigator !== 'undefined' ? navigator.onLine : true;
                             window.addEventListener('online', () => { this.isOnline = true; });
                             window.addEventListener('offline', () => { this.isOnline = false; });
+                            window.addEventListener('close-modal', () => this.stopCamera());
                             this.updateClock();
                             setInterval(() => this.updateClock(), 10000);
                             this.detectLocation();
+                        },
+
+                        getVideoElement(context) {
+                            if (context === 'clock-in') return this.$refs.clockInVideo;
+                            if (context === 'clock-out') return this.$refs.clockOutVideo;
+                            if (context === 'outside') return this.$refs.outsideVideo;
+                            return null;
+                        },
+
+                        stopCamera(resetContext = true) {
+                            if (this.cameraStream) {
+                                this.cameraStream.getTracks().forEach((track) => {
+                                    try { track.stop(); } catch (e) {}
+                                });
+                                this.cameraStream = null;
+                            }
+                            ['clockInVideo', 'clockOutVideo', 'outsideVideo'].forEach((refName) => {
+                                const el = this.$refs && this.$refs[refName];
+                                if (el && 'srcObject' in el) {
+                                    el.srcObject = null;
+                                }
+                            });
+                            this.cameraActive = false;
+                            if (resetContext) {
+                                this.cameraContext = null;
+                            }
+                        },
+
+                        async startCamera(context, requestedFacingMode = null) {
+                            this.stopCamera(false);
+                            this.cameraContext = context;
+                            this.cameraError = '';
+                            this.cameraFacingMode = requestedFacingMode || 'user';
+
+                            if (typeof navigator === 'undefined' || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                                this.cameraSupported = false;
+                                this.cameraActive = false;
+                                return;
+                            }
+
+                            let stream = null;
+                            try {
+                                stream = await navigator.mediaDevices.getUserMedia({
+                                    video: { facingMode: this.cameraFacingMode, width: { ideal: 1280 }, height: { ideal: 720 } },
+                                    audio: false,
+                                });
+                            } catch (primaryErr) {
+                                try {
+                                    stream = await navigator.mediaDevices.getUserMedia({
+                                        video: true,
+                                        audio: false,
+                                    });
+                                } catch (fallbackErr) {
+                                    console.warn('WebRTC camera unavailable, falling back to file input:', fallbackErr);
+                                    this.cameraError = this.i18n.errCameraUnavailable;
+                                    this.cameraActive = false;
+                                    return;
+                                }
+                            }
+
+                            this.cameraStream = stream;
+                            this.cameraActive = true;
+
+                            this.$nextTick(() => {
+                                const videoEl = this.getVideoElement(context);
+                                if (videoEl) {
+                                    videoEl.srcObject = stream;
+                                    if (typeof videoEl.play === 'function') {
+                                        videoEl.play().catch(() => {});
+                                    }
+                                }
+                            });
+                        },
+
+                        async flipCamera() {
+                            if (!this.cameraContext) return;
+                            const nextFacing = this.cameraFacingMode === 'user' ? 'environment' : 'user';
+                            await this.startCamera(this.cameraContext, nextFacing);
+                        },
+
+                        captureCameraPhoto(context) {
+                            const videoEl = this.getVideoElement(context);
+                            if (!videoEl || !videoEl.videoWidth || !videoEl.videoHeight) {
+                                return;
+                            }
+
+                            const canvas = document.createElement('canvas');
+                            canvas.width = videoEl.videoWidth;
+                            canvas.height = videoEl.videoHeight;
+                            const ctx = canvas.getContext('2d');
+                            if (!ctx) return;
+
+                            if (this.cameraFacingMode === 'user') {
+                                ctx.translate(canvas.width, 0);
+                                ctx.scale(-1, 1);
+                            }
+                            ctx.drawImage(videoEl, 0, 0, canvas.width, canvas.height);
+
+                            canvas.toBlob((blob) => {
+                                if (!blob) return;
+                                const capturedFile = new File([blob], `selfie-${Date.now()}.jpg`, {
+                                    type: 'image/jpeg',
+                                    lastModified: Date.now(),
+                                });
+
+                                if (context === 'clock-in') {
+                                    if (this.selfieInPreviewUrl) URL.revokeObjectURL(this.selfieInPreviewUrl);
+                                    this.selfieInFile = capturedFile;
+                                    this.selfieInPreviewUrl = URL.createObjectURL(capturedFile);
+                                } else if (context === 'clock-out') {
+                                    if (this.selfieOutPreviewUrl) URL.revokeObjectURL(this.selfieOutPreviewUrl);
+                                    this.selfieOutFile = capturedFile;
+                                    this.selfieOutPreviewUrl = URL.createObjectURL(capturedFile);
+                                } else if (context === 'outside') {
+                                    if (this.selfiePreviewUrl) URL.revokeObjectURL(this.selfiePreviewUrl);
+                                    this.selfieFile = capturedFile;
+                                    this.selfiePreviewUrl = URL.createObjectURL(capturedFile);
+                                }
+
+                                this.stopCamera();
+                            }, 'image/jpeg', 0.9);
+                        },
+
+                        retakeSelfie(context) {
+                            if (context === 'clock-in') {
+                                if (this.selfieInPreviewUrl) URL.revokeObjectURL(this.selfieInPreviewUrl);
+                                this.selfieInFile = null;
+                                this.selfieInPreviewUrl = null;
+                            } else if (context === 'clock-out') {
+                                if (this.selfieOutPreviewUrl) URL.revokeObjectURL(this.selfieOutPreviewUrl);
+                                this.selfieOutFile = null;
+                                this.selfieOutPreviewUrl = null;
+                            } else if (context === 'outside') {
+                                if (this.selfiePreviewUrl) URL.revokeObjectURL(this.selfiePreviewUrl);
+                                this.selfieFile = null;
+                                this.selfiePreviewUrl = null;
+                            }
+
+                            if (this.cameraSupported) {
+                                this.startCamera(context, this.cameraFacingMode || 'user');
+                            }
                         },
 
                         updateClock() {
@@ -922,7 +1226,11 @@
                                 return;
                             }
                             this.feedbackMessage = '';
+                            this.cameraFacingMode = 'user';
                             window.dispatchEvent(new CustomEvent('open-modal', { detail: 'dashboard-outside-attendance-modal' }));
+                            if (this.cameraSupported && !this.selfiePreviewUrl) {
+                                this.$nextTick(() => this.startCamera('outside', 'user'));
+                            }
                         },
 
                         handlePhotoCapture(event) {
@@ -933,6 +1241,7 @@
                                 URL.revokeObjectURL(this.selfiePreviewUrl);
                             }
                             this.selfiePreviewUrl = URL.createObjectURL(file);
+                            this.stopCamera();
                         },
 
                         async compressImageClientSide(file, maxDimension = 1280, quality = 0.8) {
@@ -1125,7 +1434,11 @@
                                 URL.revokeObjectURL(this.selfieInPreviewUrl);
                                 this.selfieInPreviewUrl = null;
                             }
+                            this.cameraFacingMode = 'user';
                             window.dispatchEvent(new CustomEvent('open-modal', { detail: 'clock-in-selfie-modal' }));
+                            if (this.cameraSupported) {
+                                this.$nextTick(() => this.startCamera('clock-in', 'user'));
+                            }
                         },
 
                         openClockOutSelfieModal() {
@@ -1136,7 +1449,11 @@
                                 URL.revokeObjectURL(this.selfieOutPreviewUrl);
                                 this.selfieOutPreviewUrl = null;
                             }
+                            this.cameraFacingMode = 'user';
                             window.dispatchEvent(new CustomEvent('open-modal', { detail: 'clock-out-selfie-modal' }));
+                            if (this.cameraSupported) {
+                                this.$nextTick(() => this.startCamera('clock-out', 'user'));
+                            }
                         },
 
                         startClockOut() {
@@ -1161,6 +1478,7 @@
                                 URL.revokeObjectURL(this.selfieInPreviewUrl);
                             }
                             this.selfieInPreviewUrl = URL.createObjectURL(file);
+                            this.stopCamera();
                         },
 
                         handleSelfieOutCapture(event) {
@@ -1171,6 +1489,7 @@
                                 URL.revokeObjectURL(this.selfieOutPreviewUrl);
                             }
                             this.selfieOutPreviewUrl = URL.createObjectURL(file);
+                            this.stopCamera();
                         },
 
                         async submitSelfieAttendance(action) {

@@ -281,7 +281,7 @@ class WebPushNotificationTest extends TestCase
             'status' => 'active',
         ]);
 
-        $hrAdmin = User::factory()->create(['company_id' => $hotelA->id, 'role' => 'admin', 'is_active' => true]);
+        $hrAdmin = User::factory()->create(['company_id' => $hotelA->id, 'role' => 'admin_hr', 'is_active' => true]);
 
         $foStaffUser = User::factory()->create(['company_id' => $hotelA->id, 'role' => 'user', 'is_active' => true]);
         $foStaffEmp = Employee::withoutGlobalScopes()->create([

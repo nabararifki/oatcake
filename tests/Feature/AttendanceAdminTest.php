@@ -106,7 +106,7 @@ class AttendanceAdminTest extends TestCase
      */
     public function test_scenario_1_admin_and_super_admin_can_update_attendance(): void
     {
-        $admin = $this->makeUser('admin.one', 'admin');
+        $admin = $this->makeUser('admin.one', 'admin_hr');
 
         $this->actingAs($admin)
             ->putJson(route('attendance.update', $this->attendance->uuid), $this->payload())
@@ -147,7 +147,7 @@ class AttendanceAdminTest extends TestCase
         Storage::disk('local')->put($path, 'fake-image');
         $this->attendance->update(['proof_photo_path' => $path]);
 
-        $admin = $this->makeUser('admin.two', 'admin');
+        $admin = $this->makeUser('admin.two', 'admin_hr');
 
         $this->actingAs($admin)
             ->deleteJson(route('attendance.destroy', $this->attendance->uuid))
@@ -185,7 +185,7 @@ class AttendanceAdminTest extends TestCase
     public function test_scenario_4_admin_of_another_tenant_is_forbidden(): void
     {
         $otherCompany = Company::create(['code' => 'OTHER-HOTEL', 'name' => 'Other Hotel', 'latitude' => -6.2, 'longitude' => 106.8]);
-        $foreignAdmin = $this->makeUser('admin.foreign', 'admin', $otherCompany);
+        $foreignAdmin = $this->makeUser('admin.foreign', 'admin_hr', $otherCompany);
 
         $this->actingAs($foreignAdmin)
             ->putJson(route('attendance.update', $this->attendance->uuid), $this->payload())
@@ -204,7 +204,7 @@ class AttendanceAdminTest extends TestCase
      */
     public function test_admin_sees_action_modals_while_manager_does_not(): void
     {
-        $admin = $this->makeUser('admin.ui', 'admin');
+        $admin = $this->makeUser('admin.ui', 'admin_hr');
         $this->actingAs($admin)->get(route('attendance.index', ['date_from' => '2026-11-01', 'date_to' => '2026-11-30']))
             ->assertOk()
             ->assertSee('edit-attendance-modal', false)

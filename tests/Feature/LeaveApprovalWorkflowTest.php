@@ -10,6 +10,7 @@ use App\Models\LeaveRequest;
 use App\Models\LeaveRequestApproval;
 use App\Models\LeaveType;
 use App\Models\Shift;
+use App\Models\Tag;
 use App\Models\User;
 use App\Models\WorkSchedule;
 use App\Services\LeaveApprovalService;
@@ -187,7 +188,7 @@ class LeaveApprovalWorkflowTest extends TestCase
             'name' => 'Kartika HR',
             'username' => 'kartika.hr',
             'email' => 'kartika.hr@novotelyia.com',
-            'role' => 'admin',
+            'role' => 'admin_hr',
             'is_active' => true,
         ]);
 
@@ -725,7 +726,7 @@ class LeaveApprovalWorkflowTest extends TestCase
             'name' => 'Other Admin',
             'username' => 'other.admin',
             'email' => 'admin@otherhotel.com',
-            'role' => 'admin',
+            'role' => 'admin_hr',
             'is_active' => true,
         ]);
 
@@ -907,5 +908,194 @@ class LeaveApprovalWorkflowTest extends TestCase
             ->where('notes', 'like', 'LEAVE:%')
             ->count();
         $this->assertSame(0, $oldRosterLocks);
+    }
+
+    /**
+     * Skenario 11 — Alur Persetujuan Dinamis HOD (Head of Department):
+     * - DefaultTagSeeder menyemai tag 'HOD' otomatis untuk setiap properti baru.
+     * - Karyawan bertag 'HOD' memiliki alur terbalik: Tier 1 = HRD (pending_hr), Tier 2 = Atasan Langsung HOD (pending_manager)
+     *   atau fallback super_user / super_admin.
+     * - Admin HR tidak dapat menyetujui Tier 2 (pending_manager) milik HOD jika bukan atasan langsungnya (HTTP 403).
+     * - Penolakan HOD di Tier 1 (HR) & Tier 2 (Atasan Langsung / Super User) mencatat tier yang benar dan mencegah self-approval.
+     */
+    public function test_scenario_11_hod_tagged_applicant_uses_inverted_hr_then_superior_approval_flow(): void
+    {
+        // 1. DefaultTagSeeder automatically provisions HOD tag for newly created companies
+        $freshCompany = Company::create([
+            'code' => 'IBIS-TEST-HOD',
+            'name' => 'Ibis Test HOD',
+            'latitude' => '-7.9048250',
+            'longitude' => '110.0572110',
+        ]);
+        $this->assertDatabaseHas('tags', [
+            'company_id' => $freshCompany->id,
+            'code' => 'HOD',
+        ]);
+
+        // 2. Setup HOD tag & direct superior (GM) for FO Manager
+        $hodTag = Tag::withoutGlobalScopes()
+            ->where('company_id', $this->company->id)
+            ->where('code', 'HOD')
+            ->firstOrFail();
+
+        $gmUser = User::factory()->create([
+            'company_id' => $this->company->id,
+            'name' => 'General Manager Superior',
+            'username' => 'gm.superior.hod',
+            'email' => 'gm.superior@novotelyia.com',
+            'role' => 'manager',
+            'is_active' => true,
+        ]);
+
+        $execDept = Department::withoutGlobalScopes()->create([
+            'company_id' => $this->company->id,
+            'code' => 'EXEC',
+            'name' => 'Executive Office',
+            'is_operational' => false,
+            'min_staff_per_shift' => 1,
+            'is_executive_oversight' => true,
+        ]);
+
+        $gmEmployee = Employee::withoutGlobalScopes()->create([
+            'company_id' => $this->company->id,
+            'user_id' => $gmUser->id,
+            'department_id' => $execDept->id,
+            'position' => 'General Manager',
+            'join_date' => '2022-01-01',
+            'status' => 'active',
+        ]);
+
+        $superUserFallback = User::factory()->create([
+            'company_id' => $this->company->id,
+            'name' => 'Owner Super User Fallback',
+            'username' => 'owner.fallback',
+            'email' => 'owner.fallback@novotelyia.com',
+            'role' => 'super_user',
+            'is_active' => true,
+        ]);
+
+        $this->foManagerEmployee->tags()->syncWithoutDetaching([$hodTag->id]);
+        $this->foManagerEmployee->update(['manager_id' => $gmEmployee->id]);
+
+        $accrual = $this->ledgerService->recordAccrual($this->foManagerEmployee, 'AL', 12, ['accrual_year' => 2026]);
+        $alType = LeaveType::withoutGlobalScopes()->where('code', 'AL')->firstOrFail();
+
+        // 3. HOD submits leave -> starts in pending_hr (Tier 1 = HRD)
+        $hodRequest = $this->leaveRequestService->submitRequest($this->foManagerEmployee->fresh(), [
+            'leave_type_id' => $alType->id,
+            'start_date' => '2026-12-10',
+            'end_date' => '2026-12-11',
+            'reason' => 'Cuti tahunan Head of Department FO.',
+        ], null, $this->foManagerUser);
+
+        $this->assertSame(LeaveRequest::STATUS_PENDING_HR, $hodRequest->status);
+        $this->assertTrue($hodRequest->isHodApplicant());
+        $this->assertTrue($hodRequest->canBeApprovedTier1());
+        $this->assertFalse($hodRequest->canBeApprovedTier2());
+
+        // HOD cannot self-approve Tier 1, and unrelated HK manager cannot approve Tier 1
+        $this->actingAs($this->foManagerUser)
+            ->postJson(route('leave.approveTier1', $hodRequest))
+            ->assertForbidden();
+        $this->actingAs($this->hkManagerUser)
+            ->postJson(route('leave.approveTier1', $hodRequest))
+            ->assertForbidden();
+
+        // 4. Admin HR approves Tier 1 -> transitions pending_hr -> pending_manager (no ledger debit yet)
+        $this->actingAs($this->adminUser)
+            ->postJson(route('leave.approveTier1', $hodRequest), ['notes' => 'Saldo & berkas HR OK.'])
+            ->assertOk()
+            ->assertJsonPath('data.status', LeaveRequest::STATUS_PENDING_MANAGER);
+
+        $hodRequest->refresh();
+        $this->assertSame(LeaveRequest::STATUS_PENDING_MANAGER, $hodRequest->status);
+        $this->assertSame($this->adminUser->id, $hodRequest->hr_approved_by);
+        $this->assertNull($hodRequest->ledger_entry_id);
+        $this->assertTrue($hodRequest->canBeApprovedTier2());
+        $this->assertDatabaseHas('leave_request_approvals', [
+            'leave_request_id' => $hodRequest->id,
+            'tier' => LeaveRequestApproval::TIER_MANAGER, // tier = 1
+            'approver_id' => $this->adminUser->id,
+            'action' => LeaveRequestApproval::ACTION_APPROVED,
+        ]);
+
+        // 5. At Tier 2 (pending_manager): Admin HR (not direct manager) and unrelated HK Manager are forbidden (403)
+        $this->actingAs($this->adminUser)
+            ->postJson(route('leave.approveTier2', $hodRequest))
+            ->assertForbidden();
+        $this->actingAs($this->hkManagerUser)
+            ->postJson(route('leave.approveTier2', $hodRequest))
+            ->assertForbidden();
+        $this->actingAs($this->foManagerUser)
+            ->postJson(route('leave.approveTier2', $hodRequest))
+            ->assertForbidden();
+
+        // 6. Direct superior (GM / manager_id) sees HOD request on /leave and approves Tier 2 -> approved + FIFO debit
+        $this->actingAs($gmUser)
+            ->get(route('leave.index'))
+            ->assertOk()
+            ->assertSee('Hendra Wijaya');
+
+        $this->actingAs($gmUser)
+            ->postJson(route('leave.approveTier2', $hodRequest), ['notes' => 'Disetujui final oleh GM.'])
+            ->assertOk()
+            ->assertJsonPath('data.status', LeaveRequest::STATUS_APPROVED);
+
+        $hodRequest->refresh();
+        $this->assertSame(LeaveRequest::STATUS_APPROVED, $hodRequest->status);
+        $this->assertSame($gmUser->id, $hodRequest->manager_approved_by);
+        $this->assertNotNull($hodRequest->ledger_entry_id);
+        $this->assertSame(10, (int) $accrual->fresh()->remaining_amount);
+        $this->assertDatabaseHas('leave_request_approvals', [
+            'leave_request_id' => $hodRequest->id,
+            'tier' => LeaveRequestApproval::TIER_HR, // tier = 2
+            'approver_id' => $gmUser->id,
+            'action' => LeaveRequestApproval::ACTION_APPROVED,
+        ]);
+
+        // 7. Verify Super User emergency fallback can approve Tier 2 & reject at Tier 2 for an HOD request
+        $hodRequest2 = $this->leaveRequestService->submitRequest($this->foManagerEmployee->fresh(), [
+            'leave_type_id' => $alType->id,
+            'start_date' => '2026-12-15',
+            'end_date' => '2026-12-15',
+            'reason' => 'Pengajuan kedua HOD untuk uji fallback super_user.',
+        ], null, $this->foManagerUser);
+
+        $this->actingAs($this->adminUser)
+            ->postJson(route('leave.approveTier1', $hodRequest2))
+            ->assertOk();
+
+        $this->actingAs($superUserFallback)
+            ->postJson(route('leave.approveTier2', $hodRequest2), ['notes' => 'Emergency fallback approval.'])
+            ->assertOk()
+            ->assertJsonPath('data.status', LeaveRequest::STATUS_APPROVED);
+
+        // 8. Verify Tier 2 HOD rejection by direct superior records tier = 2 & blocks Admin HR
+        $hodRequest3 = $this->leaveRequestService->submitRequest($this->foManagerEmployee->fresh(), [
+            'leave_type_id' => $alType->id,
+            'start_date' => '2026-12-20',
+            'end_date' => '2026-12-20',
+            'reason' => 'Pengajuan ketiga HOD untuk uji penolakan Tier 2.',
+        ], null, $this->foManagerUser);
+
+        $this->actingAs($this->adminUser)
+            ->postJson(route('leave.approveTier1', $hodRequest3))
+            ->assertOk();
+
+        $this->actingAs($this->adminUser)
+            ->postJson(route('leave.reject', $hodRequest3), ['reason' => 'HR tidak berhak menolak Tier 2 HOD.'])
+            ->assertForbidden();
+
+        $this->actingAs($gmUser)
+            ->postJson(route('leave.reject', $hodRequest3), ['reason' => 'Ditolak GM karena jadwal audit hotel.'])
+            ->assertOk()
+            ->assertJsonPath('data.status', LeaveRequest::STATUS_REJECTED);
+
+        $this->assertDatabaseHas('leave_request_approvals', [
+            'leave_request_id' => $hodRequest3->id,
+            'tier' => LeaveRequestApproval::TIER_HR, // tier = 2
+            'approver_id' => $gmUser->id,
+            'action' => LeaveRequestApproval::ACTION_REJECTED,
+        ]);
     }
 }

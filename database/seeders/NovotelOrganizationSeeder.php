@@ -122,5 +122,7 @@ class NovotelOrganizationSeeder extends Seeder
                 $tag
             );
         }
+
+        DefaultTagSeeder::seedForCompany($company);
     }
 }

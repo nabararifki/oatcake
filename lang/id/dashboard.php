@@ -17,5 +17,6 @@ return [
     'clocked_in_summary'        => 'Masuk: :time WIB • :status',
     'al_balance_label'          => 'Saldo Cuti Tahunan (AL)',
     'dp_balance_label'          => 'Saldo DP Aktif (DP)',
+    'eo_balance_label'          => 'Saldo Extra Off (EO)',
     'days_short'                => 'Hari',
 ];

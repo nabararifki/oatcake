@@ -49,7 +49,7 @@ class WorkSchedulePolicy
      */
     public function update(User $user, WorkSchedule $workSchedule): bool
     {
-        if (! $user->is_active || ! in_array($user->role, ['super_admin', 'super_user', 'admin', 'manager'], true)) {
+        if (! $user->is_active || ! in_array($user->role, ['super_admin', 'super_user', 'admin_hr', 'manager', 'admin_staff'], true)) {
             return false;
         }
 
@@ -65,7 +65,7 @@ class WorkSchedulePolicy
             return false;
         }
 
-        if ($user->isManager()) {
+        if ($user->isSupervisorOrManager()) {
             $managerDeptId = $user->employee?->department_id;
             $employee = $workSchedule->relationLoaded('employee')
                 ? $workSchedule->employee

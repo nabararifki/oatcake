@@ -102,7 +102,7 @@ class LocaleTest extends TestCase
     public function test_staff_directory_and_onboarding_strings_translate_between_id_and_en(): void
     {
         $user = User::factory()->create([
-            'role'      => 'admin',
+            'role'      => 'admin_hr',
             'locale'    => 'id',
             'is_active' => true,
         ]);

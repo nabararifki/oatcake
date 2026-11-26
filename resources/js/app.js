@@ -10,6 +10,7 @@ import markerShadowUrl from 'leaflet/dist/images/marker-shadow.png';
 import { registerRosterMatrix } from './roster';
 import { registerMobileDrawerSwipe } from './mobile-drawer';
 import { registerPwaManager } from './pwa';
+import { initIdleTimeoutMonitor } from './idle-timeout';
 
 delete L.Icon.Default.prototype._getIconUrl;
 L.Icon.Default.mergeOptions({
@@ -65,3 +66,4 @@ Alpine.store('sidebar', {
 window.Alpine = Alpine;
 
 Alpine.start();
+initIdleTimeoutMonitor();

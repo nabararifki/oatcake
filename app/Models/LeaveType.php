@@ -39,6 +39,16 @@ class LeaveType extends Model
             'validity_months' => 3,
             'is_active' => true,
         ],
+        'EO' => [
+            'code' => 'EO',
+            'name' => 'Extra Off (EO)',
+            'is_paid' => true,
+            'requires_quota' => true,
+            'requires_attachment' => false,
+            'default_annual_quota' => null,
+            'validity_months' => 3,
+            'is_active' => true,
+        ],
         'SL' => [
             'code' => 'SL',
             'name' => 'Cuti Sakit / Sick Leave',

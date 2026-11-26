@@ -71,7 +71,7 @@ class CompanyHolidayManagementTest extends TestCase
             'name' => 'Admin Company A',
             'username' => 'admin.comp.a',
             'email' => 'admin.a@novotelyia.com',
-            'role' => 'admin',
+            'role' => 'admin_hr',
             'is_active' => true,
         ]);
 
@@ -80,7 +80,7 @@ class CompanyHolidayManagementTest extends TestCase
             'name' => 'Admin Company B',
             'username' => 'admin.comp.b',
             'email' => 'admin.b@ibisyia.com',
-            'role' => 'admin',
+            'role' => 'admin_hr',
             'is_active' => true,
         ]);
     }

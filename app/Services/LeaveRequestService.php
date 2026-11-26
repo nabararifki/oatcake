@@ -55,7 +55,7 @@ class LeaveRequestService
         }
 
         $schedulesByDate = WorkSchedule::withoutGlobalScopes()
-            ->with(['shift' => fn ($q) => $q->withoutGlobalScopes()])
+            ->with(['shift' => fn ($q) => $q->withoutGlobalScopes()->withTrashed()])
             ->where('company_id', $employee->company_id)
             ->where('employee_id', $employee->id)
             ->where('status', 'published')
@@ -258,12 +258,16 @@ class LeaveRequestService
                 );
             }
 
-            // 5. Determine initial approval status based on applicant's User role
+            // 5. Determine initial approval status based on applicant's User role or HOD tag
+            $lockedEmployee->loadMissing(['tags' => fn ($q) => $q->withoutGlobalScopes()]);
             $applicantUser = $actor
                 ?? ($lockedEmployee->relationLoaded('user') ? $lockedEmployee->user : null)
                 ?? ($lockedEmployee->user_id ? User::find($lockedEmployee->user_id) : null);
 
-            $initialStatus = ($applicantUser !== null && in_array($applicantUser->role, ['manager', 'admin', 'super_user', 'super_admin'], true))
+            $isHodOrManagerial = $lockedEmployee->hasTag('HOD')
+                || ($applicantUser !== null && in_array($applicantUser->role, ['manager', 'admin_hr', 'super_user', 'super_admin'], true));
+
+            $initialStatus = $isHodOrManagerial
                 ? LeaveRequest::STATUS_PENDING_HR
                 : LeaveRequest::STATUS_PENDING_MANAGER;
 
@@ -452,7 +456,8 @@ class LeaveRequestService
                 : Carbon::parse($lockedRequest->end_date, 'Asia/Jakarta')->toDateString();
 
             // 1. If previously approved, refund old ledger debit and release old Roster lock first
-            if ($lockedRequest->status === LeaveRequest::STATUS_APPROVED) {
+            $wasPreviouslyApproved = $lockedRequest->status === LeaveRequest::STATUS_APPROVED;
+            if ($wasPreviouslyApproved) {
                 $oldLeaveType = $lockedRequest->leaveType;
 
                 if ($lockedRequest->ledger_entry_id !== null && $oldLeaveType !== null && $oldLeaveType->requires_quota) {
@@ -527,11 +532,15 @@ class LeaveRequestService
             }
 
             // 6. Reset approval status and active approval timestamps
+            $lockedEmployee->loadMissing(['tags' => fn ($q) => $q->withoutGlobalScopes()]);
             $applicantUser = ($lockedEmployee->relationLoaded('user') ? $lockedEmployee->user : null)
                 ?? ($lockedEmployee->user_id ? User::find($lockedEmployee->user_id) : null)
                 ?? $actor;
 
-            $resetStatus = ($applicantUser !== null && in_array($applicantUser->role, ['manager', 'admin', 'super_user', 'super_admin'], true))
+            $isHodOrManagerial = $lockedEmployee->hasTag('HOD')
+                || ($applicantUser !== null && in_array($applicantUser->role, ['manager', 'admin_hr', 'super_user', 'super_admin'], true));
+
+            $resetStatus = $isHodOrManagerial
                 ? LeaveRequest::STATUS_PENDING_HR
                 : LeaveRequest::STATUS_PENDING_MANAGER;
 
@@ -556,7 +565,7 @@ class LeaveRequestService
             // 7. Recalculate SPK SMART scores for this request and overlapping department requests
             $this->smartDecisionService->evaluateSingle($lockedRequest, true);
 
-            if ($oldStartDateStr !== $newStartDateStr || $oldEndDateStr !== $newEndDateStr) {
+            if ($wasPreviouslyApproved || $oldStartDateStr !== $newStartDateStr || $oldEndDateStr !== $newEndDateStr) {
                 $this->recalculateOverlappingDepartmentRequests($lockedEmployee, $oldStartDateStr, $oldEndDateStr);
             }
 

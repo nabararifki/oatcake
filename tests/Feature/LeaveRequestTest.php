@@ -104,7 +104,7 @@ class LeaveRequestTest extends TestCase
             'name' => 'Dewi Sartika',
             'username' => 'dewi.hr',
             'email' => 'dewi.hr@novotelyia.com',
-            'role' => 'admin',
+            'role' => 'admin_hr',
             'is_active' => true,
         ]);
 
@@ -644,7 +644,7 @@ class LeaveRequestTest extends TestCase
             'name' => 'Admin Ibis',
             'username' => 'admin.ibis',
             'email' => 'admin@ibisyia.com',
-            'role' => 'admin',
+            'role' => 'admin_hr',
             'is_active' => true,
         ]);
 

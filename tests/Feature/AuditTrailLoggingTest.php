@@ -100,7 +100,7 @@ class AuditTrailLoggingTest extends TestCase
         $admin = User::factory()->create([
             'company_id' => $company->id,
             'name' => 'HR Audit Admin',
-            'role' => 'admin',
+            'role' => 'admin_hr',
             'is_active' => true,
         ]);
 
@@ -182,7 +182,7 @@ class AuditTrailLoggingTest extends TestCase
         $shiftMO = Shift::withoutGlobalScopes()->where('company_id', $hotel->id)->where('code', 'MO')->firstOrFail();
         $alType = LeaveType::findByCode('AL', $hotel->id);
 
-        $admin = User::factory()->create(['company_id' => $hotel->id, 'role' => 'admin', 'is_active' => true]);
+        $admin = User::factory()->create(['company_id' => $hotel->id, 'role' => 'admin_hr', 'is_active' => true]);
         $manager = User::factory()->create(['company_id' => $hotel->id, 'role' => 'manager', 'is_active' => true]);
         Employee::withoutGlobalScopes()->create([
             'company_id' => $hotel->id,
@@ -404,7 +404,7 @@ class AuditTrailLoggingTest extends TestCase
 
         $this->seed([CompanySeeder::class]);
         $company = Company::where('code', 'NOVOTEL-YIA')->firstOrFail();
-        $admin = User::factory()->create(['company_id' => $company->id, 'role' => 'admin', 'is_active' => true]);
+        $admin = User::factory()->create(['company_id' => $company->id, 'role' => 'admin_hr', 'is_active' => true]);
 
         $service = app(AuditTrailService::class);
         $service->record(
@@ -454,10 +454,10 @@ class AuditTrailLoggingTest extends TestCase
 
         $superAdmin = User::factory()->create(['company_id' => null, 'role' => 'super_admin', 'is_active' => true]);
         $superUserA = User::factory()->create(['company_id' => $hotelA->id, 'role' => 'super_user', 'is_active' => true]);
-        $adminA = User::factory()->create(['company_id' => $hotelA->id, 'role' => 'admin', 'is_active' => true]);
+        $adminA = User::factory()->create(['company_id' => $hotelA->id, 'role' => 'admin_hr', 'is_active' => true]);
         $managerA = User::factory()->create(['company_id' => $hotelA->id, 'role' => 'manager', 'is_active' => true]);
         $userA = User::factory()->create(['company_id' => $hotelA->id, 'role' => 'user', 'is_active' => true]);
-        $adminB = User::factory()->create(['company_id' => $hotelB->id, 'role' => 'admin', 'is_active' => true]);
+        $adminB = User::factory()->create(['company_id' => $hotelB->id, 'role' => 'admin_hr', 'is_active' => true]);
 
         $logA = app(AuditTrailService::class)->record(
             'created',

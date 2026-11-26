@@ -355,7 +355,7 @@ class AttendanceVerificationTest extends TestCase
             'name' => 'Admin Ibis',
             'username' => 'admin.ibis',
             'email' => 'admin@ibisyia.com',
-            'role' => 'admin',
+            'role' => 'admin_hr',
             'is_active' => true,
         ]);
 

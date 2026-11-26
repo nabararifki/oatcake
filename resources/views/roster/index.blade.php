@@ -29,6 +29,8 @@
                     resized: '{{ __('roster.resized_successfully') }}',
                     shiftCreated: '{{ __('roster.shift_created_successfully') }}',
                     shiftUpdated: '{{ __('roster.shift_updated_successfully') }}',
+                    shiftDeleted: '{{ __('roster.shift_deleted_successfully') }}',
+                    paintLeaveLockedBlocked: '{{ __('roster.paint_leave_locked_blocked') }}',
                     published: '{{ __('roster.status_published') }}',
                     discarded: '{{ __('roster.discard_success') }}',
                     splitSuccess: '{{ __('roster.split_success') }}',
@@ -42,8 +44,10 @@
                 publishUrl: '{{ route('roster.publish') }}',
                 discardUrl: '{{ route('roster.discard') }}',
                 storeShiftUrl: '{{ route('roster.shifts.store') }}',
-                updateShiftUrlTemplate: '{{ route('roster.shifts.update', '__ID__') }}'
+                updateShiftUrlTemplate: '{{ route('roster.shifts.update', '__ID__') }}',
+                destroyShiftUrlTemplate: '{{ route('roster.shifts.destroy', '__ID__') }}'
              })"
+             @keydown.escape.window="if (!turnaroundModal.open) activePaintShiftId = null"
              class="flex-1 min-h-0 flex flex-col overflow-hidden bg-canvas text-ink select-none">
 
             <!-- Toolbar Palet Shift & Status Sinkronisasi -->
@@ -66,19 +70,20 @@
                         </span>
                     </div>
 
-                    <!-- Shift Palette Toolbar (Pure Drag-and-Drop & Hover Tooltips — Tanpa Mode Kuas) -->
+                    <!-- Shift Palette Toolbar (Dual-Mode: Drag-and-Drop + Click-to-Assign Paint Mode) -->
                     @if ($canEdit)
                         <div class="h-4 w-px bg-line hidden sm:block"></div>
                         <div class="flex flex-wrap items-center gap-1.5 py-0.5 w-full sm:w-auto max-w-full">
                             <div id="roster-shift-palette" class="flex flex-wrap items-center gap-1.5 max-w-full">
                                 @foreach ($shifts as $s)
                                     <div class="relative group shrink-0"
+                                         x-show="getShiftById({{ $s->id }}) !== null"
                                          draggable="true"
                                          data-shift-id="{{ $s->id }}"
                                          data-shift-code="{{ $s->code }}"
                                          data-is-off="false"
-                                         @dragstart="dragStartShift($event, { shift_id: {{ $s->id }}, code: '{{ $s->code }}', is_off: false })"
-                                         @touchstart="handleTouchStart($event, { id: {{ $s->id }}, shift_id: {{ $s->id }}, code: '{{ $s->code }}', color_badge: '{{ $s->color_badge }}', is_off: false })"
+                                         @dragstart="dragStartShift($event, { shift_id: {{ $s->id }}, code: getShiftById({{ $s->id }})?.code || '{{ $s->code }}', is_off: false })"
+                                         @touchstart="handleTouchStart($event, getShiftById({{ $s->id }}) || { id: {{ $s->id }}, shift_id: {{ $s->id }}, code: '{{ $s->code }}', color_badge: '{{ $s->color_badge }}', is_off: false })"
                                          @touchmove="handleTouchMove($event)"
                                          @touchend="handleTouchEnd($event)">
                                         <button type="button"
@@ -86,28 +91,31 @@
                                                 data-shift-id="{{ $s->id }}"
                                                 data-shift-code="{{ $s->code }}"
                                                 data-is-off="false"
-                                                @dragstart="dragStartShift($event, { shift_id: {{ $s->id }}, code: '{{ $s->code }}', is_off: false })"
-                                                @touchstart="handleTouchStart($event, { id: {{ $s->id }}, shift_id: {{ $s->id }}, code: '{{ $s->code }}', color_badge: '{{ $s->color_badge }}', is_off: false })"
+                                                @click="togglePaintShift({{ $s->id }})"
+                                                @dragstart="dragStartShift($event, { shift_id: {{ $s->id }}, code: getShiftById({{ $s->id }})?.code || '{{ $s->code }}', is_off: false })"
+                                                @touchstart="handleTouchStart($event, getShiftById({{ $s->id }}) || { id: {{ $s->id }}, shift_id: {{ $s->id }}, code: '{{ $s->code }}', color_badge: '{{ $s->color_badge }}', is_off: false })"
                                                 @touchmove="handleTouchMove($event)"
                                                 @touchend="handleTouchEnd($event)"
-                                                :style="'background-color: ' + (getShiftByCode('{{ $s->code }}')?.color_badge || '{{ $s->color_badge }}')"
+                                                :aria-pressed="isPaintShiftActive({{ $s->id }}).toString()"
+                                                :class="isPaintShiftActive({{ $s->id }}) ? 'ring-2 ring-offset-2 ring-offset-surface ring-accent scale-105 shadow-md opacity-100' : 'opacity-90 hover:opacity-100'"
+                                                :style="'background-color: ' + (getShiftById({{ $s->id }})?.color_badge || '{{ $s->color_badge }}')"
                                                 style="background-color: {{ $s->color_badge }};"
-                                                class="cursor-grab active:cursor-grabbing px-2 py-1 rounded-md text-white text-[11px] font-bold shadow-2xs opacity-95 hover:opacity-100 transition-all flex items-center gap-1 shrink-0 touch-none">
-                                            <span class="pointer-events-none">{{ $s->code }}</span>
+                                                class="cursor-pointer active:cursor-grabbing px-2 py-1 rounded-md text-white text-[11px] font-bold shadow-2xs transition-all flex items-center gap-1 shrink-0 touch-none">
+                                            <span class="pointer-events-none" x-text="getShiftById({{ $s->id }})?.code || '{{ $s->code }}'">{{ $s->code }}</span>
                                             <span class="pointer-events-none text-[9px] font-mono opacity-80 hidden lg:inline"
-                                                  x-text="formatTimeShort(getShiftByCode('{{ $s->code }}')?.start_time || '{{ $s->start_time }}')">{{ \Carbon\Carbon::parse($s->start_time)->format('H:i') }}</span>
+                                                  x-text="formatTimeShort(getShiftById({{ $s->id }})?.start_time || '{{ $s->start_time }}')">{{ \Carbon\Carbon::parse($s->start_time)->format('H:i') }}</span>
                                         </button>
 
                                         <!-- Floating Tooltip Detail Palet Shift -->
                                         <div role="tooltip"
                                              class="pointer-events-none absolute top-full left-0 mt-1.5 z-50 px-2.5 py-1.5 text-2xs font-medium text-ink bg-surface-raised border border-line-strong rounded-lg shadow-xl opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity duration-200 whitespace-nowrap">
-                                            <span class="font-bold" x-text="getShiftByCode('{{ $s->code }}')?.name || '{{ $s->name }}'">{{ $s->name }}</span>
+                                            <span class="font-bold" x-text="getShiftById({{ $s->id }})?.name || '{{ $s->name }}'">{{ $s->name }}</span>
                                             <span class="font-mono text-ink-muted ml-1"
-                                                  x-text="'(' + formatTimeShort(getShiftByCode('{{ $s->code }}')?.start_time || '{{ $s->start_time }}') + ' – ' + formatTimeShort(getShiftByCode('{{ $s->code }}')?.end_time || '{{ $s->end_time }}') + ')'">({{ \Carbon\Carbon::parse($s->start_time)->format('H:i') }} – {{ \Carbon\Carbon::parse($s->end_time)->format('H:i') }})</span>
+                                                  x-text="'(' + formatTimeShort(getShiftById({{ $s->id }})?.start_time || '{{ $s->start_time }}') + ' – ' + formatTimeShort(getShiftById({{ $s->id }})?.end_time || '{{ $s->end_time }}') + ')'">({{ \Carbon\Carbon::parse($s->start_time)->format('H:i') }} – {{ \Carbon\Carbon::parse($s->end_time)->format('H:i') }})</span>
                                             <span class="mx-1 text-ink-faint">•</span>
                                             <span class="font-semibold text-accent"
-                                                  x-text="(getShiftByCode('{{ $s->code }}')?.duration_hours ?? {{ $s->getDurationInHours() }}) + ' {{ __('roster.operational_hours') }}'">{{ $s->getDurationInHours() }} {{ __('roster.operational_hours') }}</span>
-                                            <template x-if="getShiftByCode('{{ $s->code }}')?.cross_day">
+                                                  x-text="(getShiftById({{ $s->id }})?.duration_hours ?? {{ $s->getDurationInHours() }}) + ' {{ __('roster.operational_hours') }}'">{{ $s->getDurationInHours() }} {{ __('roster.operational_hours') }}</span>
+                                            <template x-if="getShiftById({{ $s->id }})?.cross_day">
                                                 <span class="ml-1.5 px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-700 dark:text-amber-300 font-mono text-[9px] font-bold">
                                                     {{ __('roster.cross_day_label') }}
                                                 </span>
@@ -132,12 +140,15 @@
                                                 :data-shift-id="dynShift.id"
                                                 :data-shift-code="dynShift.code"
                                                 data-is-off="false"
+                                                @click="togglePaintShift(dynShift.id)"
                                                 @dragstart="dragStartShift($event, { shift_id: dynShift.id, code: dynShift.code, is_off: false })"
                                                 @touchstart="handleTouchStart($event, dynShift)"
                                                 @touchmove="handleTouchMove($event)"
                                                 @touchend="handleTouchEnd($event)"
+                                                :aria-pressed="isPaintShiftActive(dynShift.id).toString()"
+                                                :class="isPaintShiftActive(dynShift.id) ? 'ring-2 ring-offset-2 ring-offset-surface ring-accent scale-105 shadow-md opacity-100' : 'opacity-90 hover:opacity-100'"
                                                 :style="'background-color: ' + (dynShift.color_badge || '#3B82F6')"
-                                                class="cursor-grab active:cursor-grabbing px-2 py-1 rounded-md text-white text-[11px] font-bold shadow-2xs opacity-95 hover:opacity-100 transition-all flex items-center gap-1 shrink-0 touch-none">
+                                                class="cursor-pointer active:cursor-grabbing px-2 py-1 rounded-md text-white text-[11px] font-bold shadow-2xs transition-all flex items-center gap-1 shrink-0 touch-none">
                                             <span class="pointer-events-none" x-text="dynShift.code"></span>
                                             <span class="pointer-events-none text-[9px] font-mono opacity-80 hidden lg:inline"
                                                   x-text="formatTimeShort(dynShift.start_time)"></span>
@@ -155,7 +166,7 @@
                                     </div>
                                 </template>
 
-                                <!-- Tombol OFF / DP (Day of Payment) Draggable Murni -->
+                                <!-- Tombol OFF / DP (Day of Payment) Dual-Mode (Drag & Click-to-Assign) -->
                                 <div class="relative group shrink-0"
                                      draggable="true"
                                      data-shift-id=""
@@ -170,11 +181,14 @@
                                             data-shift-id=""
                                             data-shift-code="OFF"
                                             data-is-off="true"
+                                            @click="togglePaintShift('OFF')"
                                             @dragstart="dragStartShift($event, { shift_id: null, code: 'OFF', is_off: true })"
                                             @touchstart="handleTouchStart($event, { id: null, shift_id: null, code: 'OFF', color_badge: '#52525B', is_off: true })"
                                             @touchmove="handleTouchMove($event)"
                                             @touchend="handleTouchEnd($event)"
-                                            class="cursor-grab active:cursor-grabbing px-2 py-1 rounded-md bg-zinc-600 hover:bg-zinc-700 text-white text-[11px] font-bold shadow-2xs opacity-95 hover:opacity-100 transition-all flex items-center gap-1 shrink-0 touch-none">
+                                            :aria-pressed="isPaintShiftActive('OFF').toString()"
+                                            :class="isPaintShiftActive('OFF') ? 'ring-2 ring-offset-2 ring-offset-surface ring-accent scale-105 shadow-md opacity-100' : 'opacity-90 hover:opacity-100'"
+                                            class="cursor-pointer active:cursor-grabbing px-2 py-1 rounded-md bg-zinc-600 hover:bg-zinc-700 text-white text-[11px] font-bold shadow-2xs transition-all flex items-center gap-1 shrink-0 touch-none">
                                         <span class="pointer-events-none">OFF</span>
                                         <span class="pointer-events-none text-[9px] font-mono opacity-80 hidden lg:inline">DP</span>
                                     </button>
@@ -184,6 +198,24 @@
                                         {{ __('roster.day_off_tooltip') }}
                                     </div>
                                 </div>
+
+                                <!-- Indikator Mode Kuas/Paint Aktif -->
+                                <template x-if="activePaintShiftId !== null">
+                                    <button type="button"
+                                            @click="activePaintShiftId = null"
+                                            title="{{ __('roster.paint_mode_clear') }}"
+                                            class="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-accent/15 text-accent border border-accent/40 text-[10px] font-semibold hover:bg-accent/25 transition-colors cursor-pointer shrink-0">
+                                        <svg class="w-3 h-3 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                            <path d="m14.622 17.897-10.68-2.913" />
+                                            <path d="M18.376 2.622a1 1 0 1 1 3.002 3.002L17.36 9.643a.5.5 0 0 0 0 .707l.944.944a2.41 2.41 0 0 1 0 3.408l-.944.944a.5.5 0 0 1-.707 0L8.354 7.348a.5.5 0 0 1 0-.707l.944-.944a2.41 2.41 0 0 1 3.408 0l.944.944a.5.5 0 0 0 .707 0z" />
+                                            <path d="M9 8c-1.804 2.71-3.97 3.46-6.583 3.948a.507.507 0 0 0-.302.819l7.32 8.883a1 1 0 0 0 1.185.204C12.735 20.405 16 16.792 16 15" />
+                                        </svg>
+                                        <span>{{ __('roster.paint_mode_active') }}: <strong x-text="activePaintShiftLabel"></strong></span>
+                                        <svg class="w-3 h-3 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                            <path d="M18 6 6 18M6 6l12 12" />
+                                        </svg>
+                                    </button>
+                                </template>
                             </div>
 
                             <!-- Tombol Pemicu Modal Pengaturan Master Shift -->
@@ -570,20 +602,37 @@
                                     </div>
                                 </td>
 
-                                <!-- Sel-Sel Kalender Bulanan (Multi-Shift Stack, Cross-Day 24h Continuation & Pure Drag-and-Drop) -->
+                                <!-- Sel-Sel Kalender Bulanan (Multi-Shift Stack, Cross-Day 24h Continuation, Drag-and-Drop & Click-to-Assign) -->
                                 @foreach ($daysInMonth as $d)
-                                    <td :class="expandedDate === '{{ $d['date'] }}'
-                                            ? 'w-96 min-w-[24rem] sm:w-[500px] sm:min-w-[500px] shrink-0 bg-surface-muted/30 border-x-2 border-accent/40'
-                                            : 'w-14 min-w-[3.5rem] sm:w-16 sm:min-w-[4rem] shrink-0'"
+                                    <td :class="[
+                                            expandedDate === '{{ $d['date'] }}'
+                                                ? 'w-96 min-w-[24rem] sm:w-[500px] sm:min-w-[500px] shrink-0 bg-surface-muted/30 border-x-2 border-accent/40'
+                                                : 'w-14 min-w-[3.5rem] sm:w-16 sm:min-w-[4rem] shrink-0',
+                                            activePaintShiftId !== null
+                                                ? (isCellLeaveLocked({{ $emp->id }}, '{{ $d['date'] }}')
+                                                    ? 'cursor-not-allowed'
+                                                    : 'cursor-crosshair hover:bg-accent/15 hover:ring-1 hover:ring-inset hover:ring-accent/50')
+                                                : ''
+                                        ]"
                                         class="o-roster-cell relative z-0 min-h-[3rem] border-b border-r border-line/70 p-0.5 text-center align-middle overflow-hidden transition-all duration-300 ease-in-out {{ $d['is_weekend'] ? 'bg-surface-muted/20' : '' }}"
                                         data-employee-id="{{ $emp->id }}"
                                         data-date="{{ $d['date'] }}"
                                         @if ($canEdit)
+                                            @click="handleCellClick({{ $emp->id }}, '{{ $d['date'] }}', $event)"
                                             @dragover.prevent="dragOverCell($event)"
                                             @dragleave="dragLeaveCell($event)"
                                             @drop.prevent="dropOnCell($event, {{ $emp->id }}, '{{ $d['date'] }}')"
                                         @endif
                                     >
+                                        <!-- Overlay Loading Singkat Saat Click-to-Assign Berjalan -->
+                                        <div x-show="isCellPainting({{ $emp->id }}, '{{ $d['date'] }}')"
+                                             x-cloak
+                                             class="pointer-events-none absolute inset-0 z-30 bg-surface/65 backdrop-blur-[1px] flex items-center justify-center">
+                                            <svg class="animate-spin h-4 w-4 text-accent" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                                                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                            </svg>
+                                        </div>
                                         <!-- Garis Bantu Grid Linimasa 24 Jam (6 Segmen @ 4 Jam) Saat Tanggal Di-Expand -->
                                         <div x-show="expandedDate === '{{ $d['date'] }}'"
                                              class="pointer-events-none absolute inset-0 grid grid-cols-6 divide-x divide-line/50 z-0">
@@ -666,7 +715,7 @@
                                                          :data-date="'{{ $d['date'] }}'"
                                                          :draggable="sched.is_leave_locked ? 'false' : 'true'"
                                                          @if ($canEdit)
-                                                             @click="if ($el.dataset.justSlid === '1' || sched.is_leave_locked) return; if (sched.status === 'pending_delete') { restoreScheduleById({{ $emp->id }}, '{{ $d['date'] }}', sched.id, $event); } else { selectedSchedule = schedule; toggleScheduleMenu(sched.id, $event); }"
+                                                             @click="if ($el.dataset.justSlid === '1') return; if (activePaintShiftId !== null) { handleCellClick({{ $emp->id }}, '{{ $d['date'] }}', $event); return; } if (sched.is_leave_locked) return; if (sched.status === 'pending_delete') { restoreScheduleById({{ $emp->id }}, '{{ $d['date'] }}', sched.id, $event); } else { selectedSchedule = schedule; toggleScheduleMenu(sched.id, $event); }"
                                                          @endif
                                                          :title="sched.is_leave_locked ? ((sched.leave_remarks || sched.notes) + ' — {{ __('roster.leave_locked_tooltip') }}') : (sched.status === 'pending_delete' ? '{{ __('roster.pending_delete_badge') }}' : (sched.shift_name + ' (' + formatTimeShort(sched.effective_start_time) + ' – ' + formatTimeShort(sched.effective_end_time) + ')'))"
                                                          class="o-shift-pill o-shift-pill-resizable group group/pill absolute top-0 bottom-0 rounded-md px-1.5 py-0.5 flex flex-col justify-between overflow-hidden transition-all duration-300 ease-in-out hover:z-20 touch-none"
@@ -797,7 +846,7 @@
                                                 </div>
                                             </template>
 
-                                            <!-- Placeholder Dropzone Kosong (Murni Target Drop, Tanpa Klik Kuas) -->
+                                            <!-- Placeholder Dropzone Kosong (Target Drop & Click-to-Assign) -->
                                             <template x-if="getSchedules({{ $emp->id }}, '{{ $d['date'] }}').length === 0 && (expandedDate !== '{{ $d['date'] }}' || getOvernightCarryovers({{ $emp->id }}, '{{ $d['date'] }}').length === 0)">
                                                 <div class="pointer-events-none h-10 w-full rounded-md border border-dashed border-line/40 flex items-center justify-center text-2xs text-ink-faint transition-all">
                                                 </div>
@@ -1063,47 +1112,167 @@
                                                       :style="'background-color: ' + (shiftItem.color_badge || '#004F9F')"
                                                       x-text="shiftItem.code"></span>
                                             </td>
+                                            <td class="text-xs font-medium text-ink" x-text="shiftItem.name"></td>
+                                            <td class="text-xs font-mono text-ink-muted" x-text="formatTimeShort(shiftItem.start_time)"></td>
+                                            <td class="text-xs font-mono text-ink-muted" x-text="formatTimeShort(shiftItem.end_time)"></td>
+                                            <td class="text-xs font-mono text-ink-muted" x-text="(shiftItem.grace_period_minutes ?? 15) + 'm'"></td>
                                             <td>
-                                                <input type="text"
-                                                       x-model="shiftItem.name"
-                                                       class="w-36 bg-surface border border-line rounded-md px-2 py-1 text-xs text-ink focus:outline-none focus:ring-1 focus:ring-accent" />
+                                                <span class="inline-block h-5 w-8 rounded border border-line"
+                                                      :style="'background-color: ' + (shiftItem.color_badge || '#004F9F')"></span>
                                             </td>
-                                            <td>
-                                                <input type="time"
-                                                       :value="formatTimeShort(shiftItem.start_time)"
-                                                       @change="shiftItem.start_time = $event.target.value"
-                                                       class="bg-surface border border-line rounded-md px-2 py-1 text-xs font-mono text-ink focus:outline-none focus:ring-1 focus:ring-accent" />
-                                            </td>
-                                            <td>
-                                                <input type="time"
-                                                       :value="formatTimeShort(shiftItem.end_time)"
-                                                       @change="shiftItem.end_time = $event.target.value"
-                                                       class="bg-surface border border-line rounded-md px-2 py-1 text-xs font-mono text-ink focus:outline-none focus:ring-1 focus:ring-accent" />
-                                            </td>
-                                            <td>
-                                                <input type="number"
-                                                       min="0"
-                                                       max="120"
-                                                       x-model.number="shiftItem.grace_period_minutes"
-                                                       class="w-16 bg-surface border border-line rounded-md px-2 py-1 text-xs font-mono text-ink focus:outline-none focus:ring-1 focus:ring-accent" />
-                                            </td>
-                                            <td>
-                                                <input type="color"
-                                                       x-model="shiftItem.color_badge"
-                                                       class="h-7 w-10 rounded border border-line bg-surface p-0.5 cursor-pointer" />
-                                            </td>
-                                            <td class="text-right">
-                                                <button type="button"
-                                                        @click="updateMasterShift(shiftItem)"
-                                                        :disabled="savingShiftId === shiftItem.id"
-                                                        class="px-2.5 py-1 rounded-md bg-accent text-accent-fg text-2xs font-bold hover:opacity-90 disabled:opacity-50 transition-opacity cursor-pointer">
-                                                    <span x-text="savingShiftId === shiftItem.id ? '...' : '{{ __('roster.save_shift_btn') }}'"></span>
-                                                </button>
+                                            <td class="text-right whitespace-nowrap">
+                                                <div class="inline-flex items-center justify-end gap-1.5">
+                                                    <button type="button"
+                                                            @click="openEditShiftModal(shiftItem)"
+                                                            class="inline-flex items-center gap-1 px-2.5 py-1 rounded-md border border-line bg-surface hover:bg-surface-muted text-ink text-2xs font-semibold transition-colors cursor-pointer">
+                                                        <span>{{ __('roster.btn_edit_shift') }}</span>
+                                                    </button>
+                                                    <button type="button"
+                                                            @click="openDeleteShiftModal(shiftItem)"
+                                                            class="inline-flex items-center gap-1 px-2.5 py-1 rounded-md border border-red-500/25 bg-red-500/10 hover:bg-red-500/20 text-red-600 dark:text-red-400 text-2xs font-semibold transition-colors cursor-pointer">
+                                                        <span>{{ __('roster.btn_delete_shift') }}</span>
+                                                    </button>
+                                                </div>
                                             </td>
                                         </tr>
                                     </template>
                                 </tbody>
                             </table>
+                        </div>
+                    </div>
+                </x-ui.modal>
+
+                <!-- Modal Edit Master Shift (Termasuk Kode Shift) -->
+                <x-ui.modal name="edit-shift-modal" :title="__('roster.modal_edit_shift_title')" maxWidth="md">
+                    <form @submit.prevent="submitEditShift()" class="space-y-4">
+                        <template x-if="shiftModalError">
+                            <div class="px-3 py-2 rounded-lg bg-red-500/15 border border-red-500/30 text-red-700 dark:text-red-300 text-xs font-medium"
+                                 x-text="shiftModalError"></div>
+                        </template>
+
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            <div>
+                                <label for="edit-shift-code" class="block text-xs font-semibold text-ink mb-1">
+                                    {{ __('roster.shift_code_col') }} <span class="text-red-500">*</span>
+                                </label>
+                                <input id="edit-shift-code"
+                                       type="text"
+                                       maxlength="20"
+                                       required
+                                       x-model="editingShift.code"
+                                       class="w-full rounded-xl border border-line bg-surface px-3 py-2 text-xs font-mono font-bold uppercase text-ink focus:outline-none focus:ring-2 focus:ring-accent" />
+                            </div>
+                            <div>
+                                <label for="edit-shift-color" class="block text-xs font-semibold text-ink mb-1">
+                                    {{ __('roster.shift_color_col') }}
+                                </label>
+                                <div class="flex items-center gap-2">
+                                    <input id="edit-shift-color"
+                                           type="color"
+                                           x-model="editingShift.color_badge"
+                                           class="h-9 w-12 rounded-lg border border-line bg-surface p-0.5 cursor-pointer" />
+                                    <input type="text"
+                                           x-model="editingShift.color_badge"
+                                           maxlength="20"
+                                           class="flex-1 rounded-xl border border-line bg-surface px-3 py-2 text-xs font-mono text-ink focus:outline-none focus:ring-2 focus:ring-accent" />
+                                </div>
+                            </div>
+                        </div>
+
+                        <div>
+                            <label for="edit-shift-name" class="block text-xs font-semibold text-ink mb-1">
+                                {{ __('roster.shift_name_col') }} <span class="text-red-500">*</span>
+                            </label>
+                            <input id="edit-shift-name"
+                                   type="text"
+                                   maxlength="100"
+                                   required
+                                   x-model="editingShift.name"
+                                   class="w-full rounded-xl border border-line bg-surface px-3 py-2 text-xs text-ink focus:outline-none focus:ring-2 focus:ring-accent" />
+                        </div>
+
+                        <div class="grid grid-cols-3 gap-3">
+                            <div>
+                                <label for="edit-shift-start" class="block text-xs font-semibold text-ink mb-1">
+                                    {{ __('roster.shift_start_col') }} <span class="text-red-500">*</span>
+                                </label>
+                                <input id="edit-shift-start"
+                                       type="time"
+                                       required
+                                       x-model="editingShift.start_time"
+                                       class="w-full rounded-xl border border-line bg-surface px-3 py-2 text-xs font-mono text-ink focus:outline-none focus:ring-2 focus:ring-accent" />
+                            </div>
+                            <div>
+                                <label for="edit-shift-end" class="block text-xs font-semibold text-ink mb-1">
+                                    {{ __('roster.shift_end_col') }} <span class="text-red-500">*</span>
+                                </label>
+                                <input id="edit-shift-end"
+                                       type="time"
+                                       required
+                                       x-model="editingShift.end_time"
+                                       class="w-full rounded-xl border border-line bg-surface px-3 py-2 text-xs font-mono text-ink focus:outline-none focus:ring-2 focus:ring-accent" />
+                            </div>
+                            <div>
+                                <label for="edit-shift-grace" class="block text-xs font-semibold text-ink mb-1">
+                                    {{ __('roster.shift_grace_col') }}
+                                </label>
+                                <input id="edit-shift-grace"
+                                       type="number"
+                                       min="0"
+                                       max="120"
+                                       x-model.number="editingShift.grace_period_minutes"
+                                       class="w-full rounded-xl border border-line bg-surface px-3 py-2 text-xs font-mono text-ink focus:outline-none focus:ring-2 focus:ring-accent" />
+                            </div>
+                        </div>
+
+                        <div class="flex items-center justify-end gap-2 pt-3 border-t border-line">
+                            <button type="button"
+                                    @click="$dispatch('close-modal', 'edit-shift-modal')"
+                                    class="px-4 py-2 rounded-xl border border-line bg-surface hover:bg-surface-muted text-ink text-xs font-medium transition-colors cursor-pointer">
+                                {{ __('common.cancel') }}
+                            </button>
+                            <button type="submit"
+                                    :disabled="savingShiftId === editingShift.id"
+                                    class="px-4 py-2 rounded-xl bg-accent text-accent-fg text-xs font-semibold shadow-sm hover:opacity-95 disabled:opacity-50 transition-all cursor-pointer">
+                                <span x-text="savingShiftId === editingShift.id ? '...' : '{{ __('roster.save_shift_btn') }}'"></span>
+                            </button>
+                        </div>
+                    </form>
+                </x-ui.modal>
+
+                <!-- Modal Konfirmasi Soft-Delete Master Shift -->
+                <x-ui.modal name="delete-shift-modal" :title="__('roster.modal_delete_shift_title')" maxWidth="sm">
+                    <div class="space-y-4">
+                        <template x-if="shiftModalError">
+                            <div class="px-3 py-2 rounded-lg bg-red-500/15 border border-red-500/30 text-red-700 dark:text-red-300 text-xs font-medium"
+                                 x-text="shiftModalError"></div>
+                        </template>
+
+                        <p class="text-xs text-ink-muted leading-relaxed">
+                            {{ __('roster.modal_delete_shift_desc') }}
+                        </p>
+
+                        <template x-if="deletingShift">
+                            <div class="rounded-xl border border-line bg-surface-muted/50 px-3.5 py-2.5 flex items-center gap-2.5">
+                                <span class="px-2 py-0.5 rounded text-white text-2xs font-mono font-bold"
+                                      :style="'background-color: ' + (deletingShift.color_badge || '#004F9F')"
+                                      x-text="deletingShift.code"></span>
+                                <span class="text-xs font-semibold text-ink truncate" x-text="deletingShift.name"></span>
+                            </div>
+                        </template>
+
+                        <div class="flex items-center justify-end gap-2 pt-3 border-t border-line">
+                            <button type="button"
+                                    @click="$dispatch('close-modal', 'delete-shift-modal')"
+                                    class="px-4 py-2 rounded-xl border border-line bg-surface hover:bg-surface-muted text-ink text-xs font-medium transition-colors cursor-pointer">
+                                {{ __('common.cancel') }}
+                            </button>
+                            <button type="button"
+                                    @click="confirmDeleteShift()"
+                                    :disabled="deletingShiftBusy"
+                                    class="px-4 py-2 rounded-xl bg-red-600 hover:bg-red-700 text-white text-xs font-semibold shadow-sm disabled:opacity-50 transition-colors cursor-pointer">
+                                <span x-text="deletingShiftBusy ? '...' : '{{ __('roster.btn_confirm_delete_shift') }}'"></span>
+                            </button>
                         </div>
                     </div>
                 </x-ui.modal>

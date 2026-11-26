@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Models\Concerns\RecordsAuditTrail;
+use Database\Seeders\DefaultTagSeeder;
 use Database\Seeders\PublicHolidaySeeder;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -35,6 +36,7 @@ class Company extends Model
         'logo_url',
         'accent_color',
         'photo_retention_months',
+        'auto_logout_minutes',
         'storage_limit_mb',
         'is_active',
     ];
@@ -53,6 +55,7 @@ class Company extends Model
             'geofence_radius' => 'integer',
             'auto_assign_shift_on_clock_in' => 'boolean',
             'photo_retention_months' => 'integer',
+            'auto_logout_minutes' => 'integer',
             'storage_limit_mb' => 'integer',
             'is_active' => 'boolean',
         ];
@@ -78,6 +81,10 @@ class Company extends Model
         static::created(function (Company $company): void {
             if (Schema::hasTable('public_holidays')) {
                 PublicHolidaySeeder::seedForCompany($company);
+            }
+
+            if (Schema::hasTable('tags')) {
+                DefaultTagSeeder::seedForCompany($company);
             }
         });
     }
@@ -254,5 +261,15 @@ class Company extends Model
         $limitBytes = (int) ($this->storage_limit_mb ?? 1024) * 1048576;
 
         return ($this->getStorageUsageBytes() + $incomingBytes) > $limitBytes;
+    }
+
+    /**
+     * Resolve the bounded idle auto-logout timeout in minutes (5..1440, default 30).
+     */
+    public function getEffectiveAutoLogoutMinutes(): int
+    {
+        $minutes = (int) ($this->auto_logout_minutes ?? 30);
+
+        return max(5, min(1440, $minutes > 0 ? $minutes : 30));
     }
 }

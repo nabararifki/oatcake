@@ -80,7 +80,7 @@ class UpdateEmployeeRequest extends FormRequest
             'role' => [
                 'required',
                 'string',
-                Rule::in(['user', 'manager', 'admin', 'super_user']),
+                Rule::in(['user', 'admin_staff', 'manager', 'admin_hr', 'super_user']),
                 Rule::in($allowedRoles),
             ],
             'manager_id' => [

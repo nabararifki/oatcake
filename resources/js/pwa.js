@@ -4,7 +4,7 @@ const NOTIFICATIONS_ENDPOINT = '/notifications';
 const PUSH_SUBSCRIPTIONS_ENDPOINT = '/notifications/push-subscriptions';
 const TEST_PUSH_ENDPOINT = '/notifications/test-push';
 const MARK_ALL_READ_ENDPOINT = '/notifications/read-all';
-const USER_CACHE_NAMES = ['oatcake-pages-v2', 'oatcake-data-v2', 'oatcake-pages-v1', 'oatcake-data-v1'];
+const USER_CACHE_NAMES = ['oatcake-pages-v3', 'oatcake-data-v3', 'oatcake-pages-v2', 'oatcake-data-v2', 'oatcake-pages-v1', 'oatcake-data-v1'];
 
 let listenersInitialized = false;
 
@@ -144,7 +144,7 @@ async function readSnapshotFromCacheStorage() {
         return null;
     }
     try {
-        const cache = await window.caches.open('oatcake-data-v2');
+        const cache = await window.caches.open('oatcake-data-v3');
         const response = await cache.match(SNAPSHOT_ENDPOINT);
         if (!response || !response.ok) {
             return null;
@@ -275,7 +275,7 @@ export function registerPwaManager(Alpine) {
                 return;
             }
             try {
-                await navigator.serviceWorker.register('/sw.js?v=oatcake-v2', { scope: '/' });
+                await navigator.serviceWorker.register('/sw.js?v=oatcake-v3', { scope: '/' });
                 this.swRegistered = true;
             } catch (e) {
                 // Service worker registration failed or unsupported in current context

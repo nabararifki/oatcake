@@ -22,7 +22,7 @@ class StoreEmployeeUserRequest extends FormRequest
             return false;
         }
 
-        return in_array($user->role, ['manager', 'admin', 'super_user', 'super_admin'], true);
+        return in_array($user->role, ['manager', 'admin_hr', 'super_user', 'super_admin'], true);
     }
 
     /**
@@ -59,15 +59,15 @@ class StoreEmployeeUserRequest extends FormRequest
      */
     public static function allowedRolesFor(User $currentUser): array
     {
-        if (! in_array($currentUser->role, ['manager', 'admin', 'super_user', 'super_admin'], true)) {
+        if (! in_array($currentUser->role, ['manager', 'admin_hr', 'super_user', 'super_admin'], true)) {
             return [];
         }
 
-        $allowedRoles = ['user', 'manager'];
+        $allowedRoles = ['user', 'admin_staff', 'manager'];
         if ($currentUser->isSuperAdmin() || $currentUser->isSuperUser()) {
-            $allowedRoles = array_merge($allowedRoles, ['admin', 'super_user']);
-        } elseif ($currentUser->isAdmin()) {
-            $allowedRoles[] = 'admin';
+            $allowedRoles = array_merge($allowedRoles, ['admin_hr', 'super_user']);
+        } elseif ($currentUser->isAdminHr()) {
+            $allowedRoles[] = 'admin_hr';
         }
 
         return $allowedRoles;
@@ -111,7 +111,7 @@ class StoreEmployeeUserRequest extends FormRequest
             'role' => [
                 'required',
                 'string',
-                Rule::in(['user', 'manager', 'admin', 'super_user']),
+                Rule::in(['user', 'admin_staff', 'manager', 'admin_hr', 'super_user']),
                 Rule::in($allowedRoles),
             ],
             'manager_id' => [

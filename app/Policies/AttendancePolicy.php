@@ -21,7 +21,7 @@ class AttendancePolicy
      */
     public function viewVerifications(User $user): bool
     {
-        return (bool) $user->is_active && $user->isManagerOrAbove();
+        return (bool) $user->is_active && $user->isSupervisorOrAbove();
     }
 
     /**
@@ -62,7 +62,7 @@ class AttendancePolicy
             return true;
         }
 
-        if ($user->isManager()) {
+        if ($user->isSupervisorOrManager()) {
             $managerDeptId = $user->employee?->department_id;
             $employee = $attendance->relationLoaded('employee')
                 ? $attendance->employee
@@ -81,7 +81,7 @@ class AttendancePolicy
      */
     public function verify(User $user, Attendance $attendance): bool
     {
-        if (! $user->is_active || ! $user->isManagerOrAbove()) {
+        if (! $user->is_active || ! $user->isSupervisorOrAbove()) {
             return false;
         }
 
@@ -97,7 +97,7 @@ class AttendancePolicy
             return false;
         }
 
-        if ($user->isManager()) {
+        if ($user->isSupervisorOrManager()) {
             $managerDeptId = $user->employee?->department_id;
             $employee = $attendance->relationLoaded('employee')
                 ? $attendance->employee

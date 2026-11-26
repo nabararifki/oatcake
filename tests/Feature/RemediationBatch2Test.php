@@ -123,7 +123,7 @@ class RemediationBatch2Test extends TestCase
     {
         $creator = User::factory()->create([
             'company_id' => $this->company->id,
-            'role' => 'admin',
+            'role' => 'admin_hr',
             'is_active' => true,
         ]);
         $emp = $this->createEmployee('user', $this->foDept);
@@ -211,7 +211,7 @@ class RemediationBatch2Test extends TestCase
 
     public function test_block_3_pagination_case_insensitive_search_and_full_smart_recalculation(): void
     {
-        $admin = $this->createEmployee('admin', $this->foDept, null, 'Admin Pelatihan', 'adm_pag');
+        $admin = $this->createEmployee('admin_hr', $this->foDept, null, 'Admin Pelatihan', 'adm_pag');
         $staffMina = $this->createEmployee('user', $this->foDept, null, 'Mina Kusuma', 'mina_fo');
         $staffBudi = $this->createEmployee('user', $this->foDept, null, 'Budi Santoso', 'budi_fo');
 
@@ -304,7 +304,7 @@ class RemediationBatch2Test extends TestCase
 
     public function test_block_4_roster_anti_spoofing_scoped_leave_delete_and_safe_discard_publish(): void
     {
-        $admin = $this->createEmployee('admin', $this->foDept, null, 'Admin Roster', 'adm_ros');
+        $admin = $this->createEmployee('admin_hr', $this->foDept, null, 'Admin Roster', 'adm_ros');
         $staff = $this->createEmployee('user', $this->foDept, null, 'Staf Roster', 'stf_ros');
 
         // Manual notes spoofing 'LEAVE:' must be rejected with 422 on assign and updateShift
@@ -473,16 +473,16 @@ class RemediationBatch2Test extends TestCase
         $sw = File::get(public_path('sw.js'));
         $pwaJs = File::get(resource_path('js/pwa.js'));
 
-        $this->assertStringContainsString('oatcake-pwa-v2', $sw);
-        $this->assertStringContainsString('oatcake-static-v2', $sw);
-        $this->assertStringContainsString('oatcake-pages-v2', $sw);
-        $this->assertStringContainsString('oatcake-data-v2', $sw);
+        $this->assertStringContainsString('oatcake-pwa-v3', $sw);
+        $this->assertStringContainsString('oatcake-static-v3', $sw);
+        $this->assertStringContainsString('oatcake-pages-v3', $sw);
+        $this->assertStringContainsString('oatcake-data-v3', $sw);
 
         foreach (['/api', '/sanctum', '/audit-logs', '/attendance/verifications', '/settings', '/profile'] as $route) {
             $this->assertStringContainsString("'{$route}'", $sw);
         }
 
-        $this->assertStringContainsString('/sw.js?v=oatcake-v2', $pwaJs);
-        $this->assertStringContainsString('oatcake-data-v2', $pwaJs);
+        $this->assertStringContainsString('/sw.js?v=oatcake-v3', $pwaJs);
+        $this->assertStringContainsString('oatcake-data-v3', $pwaJs);
     }
 }

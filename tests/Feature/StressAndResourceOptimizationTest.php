@@ -62,7 +62,7 @@ class StressAndResourceOptimizationTest extends TestCase
 
         $admin = User::factory()->create([
             'company_id' => $company->id,
-            'role' => 'admin',
+            'role' => 'admin_hr',
             'is_active' => true,
             'email_verified_at' => now(),
         ]);
@@ -154,7 +154,7 @@ class StressAndResourceOptimizationTest extends TestCase
 
         $admin = User::factory()->create([
             'company_id' => $company->id,
-            'role' => 'admin',
+            'role' => 'admin_hr',
             'is_active' => true,
             'email_verified_at' => now(),
         ]);

@@ -8,11 +8,12 @@
 
     $deptCode = $authUser?->employee?->department?->code;
     $roleBadgeLabel = match ($authUser?->role) {
-        'super_admin' => 'Super Admin',
-        'super_user' => 'Super User',
-        'admin' => 'HR Admin',
-        'manager' => $deptCode ? "Manager - {$deptCode}" : 'Manager',
-        default => 'Staff',
+        'super_admin' => __('staff.role_super_admin'),
+        'super_user' => __('staff.role_super_user'),
+        'admin_hr' => __('staff.role_admin_hr'),
+        'manager' => $deptCode ? __('staff.role_manager') . " - {$deptCode}" : __('staff.role_manager'),
+        'admin_staff' => $deptCode ? __('staff.role_admin_staff') . " - {$deptCode}" : __('staff.role_admin_staff'),
+        default => __('staff.role_user'),
     };
 
     $sidebarCollapsed = request()->cookie('sidebar') === 'collapsed';
@@ -20,6 +21,8 @@
     $allCompanies = $authUser?->isSuperAdmin()
         ? \App\Models\Company::orderBy('name')->get()
         : collect();
+
+    $autoLogoutMinutes = $currentCompany ? $currentCompany->getEffectiveAutoLogoutMinutes() : 30;
 @endphp
 <!DOCTYPE html>
 <html lang="{{ str_replace('_', '-', app()->getLocale()) }}"
@@ -31,6 +34,11 @@
         <meta name="viewport" content="width=device-width, initial-scale=1">
         <meta name="csrf-token" content="{{ csrf_token() }}">
         <meta name="color-scheme" content="light dark">
+        @auth
+            <meta name="session-timeout-minutes" content="{{ $autoLogoutMinutes }}">
+            <meta name="session-logout-url" content="{{ route('logout') }}">
+            <meta name="session-login-url" content="{{ route('login', ['timeout' => 1]) }}">
+        @endauth
         @include('layouts.partials.pwa-head')
 
         <title>{{ $currentCompany?->name ? $currentCompany->name . ' — ' . config('app.name', 'OATCAKE') : config('app.name', 'OATCAKE') }}</title>
@@ -98,7 +106,7 @@
 
                     <a href="{{ route('dashboard') }}" class="flex items-center gap-2 sm:gap-2.5 min-w-0 group">
                         @if ($authUser?->isSuperAdmin() && ! $currentCompany)
-                            <img src="{{ asset('storage/oatcake_logo_min.jpg') }}"
+                            <img src="{{ asset('storage/oatcake_logo_min.png') }}"
                                  alt="OATCAKE Platform Administration"
                                  class="h-8 w-8 shrink-0 rounded-lg object-cover border border-line bg-surface shadow-2xs" />
                             <div class="flex items-center gap-2 min-w-0">
@@ -110,7 +118,7 @@
                                 </span>
                             </div>
                         @elseif ($currentCompany)
-                            <img src="{{ $currentCompany->logo_url ?: asset('storage/oatcake_logo_min.jpg') }}"
+                            <img src="{{ $currentCompany->logo_url ?: asset('storage/oatcake_logo_min.png') }}"
                                  alt="{{ $currentCompany->name }}"
                                  class="h-8 w-8 shrink-0 rounded-lg object-cover border border-line bg-surface shadow-2xs" />
                             <div class="flex items-center gap-2 min-w-0">
@@ -122,7 +130,7 @@
                                 </span>
                             </div>
                         @else
-                            <img src="{{ asset('storage/oatcake_logo_min.jpg') }}"
+                            <img src="{{ asset('storage/oatcake_logo_min.png') }}"
                                  alt="{{ config('app.name', 'OATCAKE') }}"
                                  class="h-8 w-8 shrink-0 rounded-lg object-cover border border-line bg-surface shadow-2xs" />
                         @endif

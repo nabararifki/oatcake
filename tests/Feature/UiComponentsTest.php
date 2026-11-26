@@ -170,7 +170,7 @@ class UiComponentsTest extends TestCase
         $this->actingAs($user);
 
         $shellHtml = Blade::render('<x-app-layout><div>Shell Content</div></x-app-layout>');
-        $this->assertStringContainsString('storage/oatcake_logo_min.jpg', $shellHtml);
+        $this->assertStringContainsString('storage/oatcake_logo_min.png', $shellHtml);
     }
 
     public function test_views_adhere_to_semantic_color_tokens_and_eliminate_hardcoded_colors(): void
@@ -193,5 +193,51 @@ class UiComponentsTest extends TestCase
         $this->assertStringNotContainsString('text-gray-900', $profileHtml);
         $this->assertStringNotContainsString('bg-white', $profileHtml);
         $this->assertStringContainsString('text-ink', $profileHtml);
+    }
+
+    public function test_searchable_select_component_renders_nullable_and_required_modes_without_nik(): void
+    {
+        $options = [
+            ['id' => 'user', 'label' => 'Staf'],
+            ['id' => 'manager', 'label' => 'Manager'],
+        ];
+
+        $requiredHtml = Blade::render(<<<'BLADE'
+            <x-ui.searchable-select
+                name="role"
+                id="role"
+                :options="$options"
+                selected="manager"
+                placeholder="-- Pilih Peran --"
+                searchPlaceholder="Cari peran..."
+                emptyText="Tidak ditemukan"
+                :nullable="false"
+                :required="true" />
+        BLADE, ['options' => $options]);
+
+        $this->assertStringContainsString('type="hidden" id="role" name="role"', $requiredHtml);
+        $this->assertStringContainsString('required', $requiredHtml);
+        $this->assertStringContainsString('Manager', $requiredHtml);
+        $this->assertStringNotContainsString('@click.stop="clear()"', $requiredHtml);
+        $this->assertStringNotContainsString('nik', strtolower($requiredHtml));
+
+        $nullableHtml = Blade::render(<<<'BLADE'
+            <x-ui.searchable-select
+                name="manager_id"
+                id="manager_id"
+                :options="$options"
+                :selected="null"
+                placeholder="-- Tanpa Atasan --"
+                searchPlaceholder="Cari atasan..."
+                emptyText="Kosong"
+                clearLabel="Hapus pilihan"
+                :nullable="true"
+                :required="false" />
+        BLADE, ['options' => $options]);
+
+        $this->assertStringContainsString('type="hidden" id="manager_id" name="manager_id"', $nullableHtml);
+        $this->assertStringContainsString('@click.stop="clear()"', $nullableHtml);
+        $this->assertStringContainsString('-- Tanpa Atasan --', $nullableHtml);
+        $this->assertStringNotContainsString('nik', strtolower($nullableHtml));
     }
 }

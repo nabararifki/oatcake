@@ -226,7 +226,7 @@ class WebPushService
         return User::query()
             ->where('company_id', $companyId)
             ->where('is_active', true)
-            ->whereIn('role', ['admin', 'super_user'])
+            ->whereIn('role', ['admin_hr', 'super_user'])
             ->when($excludeUserId !== null, fn ($q) => $q->where('id', '!=', $excludeUserId))
             ->get();
     }

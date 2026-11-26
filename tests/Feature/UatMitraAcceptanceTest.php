@@ -53,7 +53,7 @@ class UatMitraAcceptanceTest extends TestCase
         foreach ([
             'superadmin.uat@oatcake.test' => 'super_admin',
             'gm.uat@oatcake.test' => 'super_user',
-            'hr.uat@oatcake.test' => 'admin',
+            'hr.uat@oatcake.test' => 'admin_hr',
             'fom.uat@oatcake.test' => 'manager',
             'fo.staff1@oatcake.test' => 'user',
         ] as $email => $expectedRole) {

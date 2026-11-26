@@ -103,6 +103,7 @@ class AttendanceGeofenceService
 
         $allCandidates = Shift::withoutGlobalScopes()
             ->where('company_id', $employee->company_id)
+            ->whereNull('deleted_at')
             ->where('is_active', true)
             ->where('code', '!=', 'OFF')
             ->whereNotNull('start_time')
@@ -202,7 +203,7 @@ class AttendanceGeofenceService
 
                 return WorkSchedule::withoutGlobalScopes()
                     ->with([
-                        'shift' => fn ($q) => $q->withoutGlobalScopes(),
+                        'shift' => fn ($q) => $q->withoutGlobalScopes()->withTrashed(),
                         'dutyTag' => fn ($q) => $q->withoutGlobalScopes(),
                     ])
                     ->find($targetSchedule->id);
@@ -222,7 +223,7 @@ class AttendanceGeofenceService
 
         return WorkSchedule::withoutGlobalScopes()
             ->with([
-                'shift' => fn ($q) => $q->withoutGlobalScopes(),
+                'shift' => fn ($q) => $q->withoutGlobalScopes()->withTrashed(),
                 'dutyTag' => fn ($q) => $q->withoutGlobalScopes(),
             ])
             ->find($created->id);
@@ -243,7 +244,7 @@ class AttendanceGeofenceService
         $openAttendance = Attendance::withoutGlobalScopes()
             ->with([
                 'workSchedule' => fn ($q) => $q->withoutGlobalScopes()->with([
-                    'shift' => fn ($sq) => $sq->withoutGlobalScopes(),
+                    'shift' => fn ($sq) => $sq->withoutGlobalScopes()->withTrashed(),
                     'dutyTag' => fn ($tq) => $tq->withoutGlobalScopes(),
                 ]),
             ])
@@ -279,7 +280,7 @@ class AttendanceGeofenceService
 
         $schedules = WorkSchedule::withoutGlobalScopes()
             ->with([
-                'shift' => fn ($q) => $q->withoutGlobalScopes(),
+                'shift' => fn ($q) => $q->withoutGlobalScopes()->withTrashed(),
                 'dutyTag' => fn ($q) => $q->withoutGlobalScopes(),
             ])
             ->where('company_id', $employee->company_id)
@@ -337,7 +338,7 @@ class AttendanceGeofenceService
 
         $candidates = WorkSchedule::withoutGlobalScopes()
             ->with([
-                'shift' => fn ($q) => $q->withoutGlobalScopes(),
+                'shift' => fn ($q) => $q->withoutGlobalScopes()->withTrashed(),
                 'dutyTag' => fn ($q) => $q->withoutGlobalScopes(),
             ])
             ->where('company_id', $employee->company_id)
@@ -403,7 +404,7 @@ class AttendanceGeofenceService
 
         $workingSchedules = WorkSchedule::withoutGlobalScopes()
             ->with([
-                'shift' => fn ($q) => $q->withoutGlobalScopes(),
+                'shift' => fn ($q) => $q->withoutGlobalScopes()->withTrashed(),
                 'dutyTag' => fn ($q) => $q->withoutGlobalScopes(),
             ])
             ->where('company_id', $employee->company_id)

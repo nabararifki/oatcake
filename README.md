@@ -4,12 +4,12 @@
 
 # OATCAKE
 
-![Version](https://img.shields.io/badge/version-v1.0.0--rc%20(Release%20Candidate)-004F9F?style=flat-square)
+![Version](https://img.shields.io/badge/version-v1.1.0-004F9F?style=flat-square)
 ![Laravel](https://img.shields.io/badge/Laravel-12-FF2D20?style=flat-square)
 ![PHP](https://img.shields.io/badge/PHP-8.4%2B-777BB4?style=flat-square)
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-18-336791?style=flat-square)
 
-**Hospitality HRIS & 24-Hour Roster Scheduling Platform — `v1.0.0 Release Candidate`**
+**Hospitality HRIS & 24-Hour Roster Scheduling Platform — `v1.1.0`**
 
 OATCAKE adalah platform manajemen SDM dan penjadwalan rotasi kerja 24 jam non-stop yang dirancang khusus untuk operasional industri perhotelan dan resort berskala enterprise.
 
@@ -87,7 +87,7 @@ OATCAKE adalah platform manajemen SDM dan penjadwalan rotasi kerja 24 jam non-st
 
 ## Pengujian
 
-Jalankan seluruh rangkaian pengujian otomatis (**247 pengujian / 7.126 asersi**):
+Jalankan seluruh rangkaian pengujian otomatis (**271 pengujian / 7.881 asersi**):
 
 ```bash
 php artisan test

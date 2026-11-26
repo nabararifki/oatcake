@@ -193,7 +193,7 @@ class SplitShiftAttendanceTest extends TestCase
             'name' => 'Diana HR Admin',
             'username' => 'diana.roster.sheet',
             'email' => 'diana.sheet@novotelyia.com',
-            'role' => 'admin',
+            'role' => 'admin_hr',
             'is_active' => true,
         ]);
 

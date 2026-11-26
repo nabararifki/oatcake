@@ -8,7 +8,7 @@ use Illuminate\Database\Seeder;
 class LeaveTypeSeeder extends Seeder
 {
     /**
-     * Seed the standard system leave types (AL, DP, SL, SPL, UL).
+     * Seed the standard system leave types (AL, DP, EO, SL, SPL, UL).
      */
     public function run(): void
     {

@@ -68,7 +68,7 @@ class PrepareUatEnvironmentCommand extends Command
             [
                 ['super_admin', 'superadmin_uat', 'superadmin.uat@oatcake.test', 'Platform Global', $password],
                 ['super_user', 'gm_uat', 'gm.uat@oatcake.test', 'FO (Executive)', $password],
-                ['admin', 'hr_uat', 'hr.uat@oatcake.test', 'HR (Talent & Culture)', $password],
+                ['admin_hr', 'hr_uat', 'hr.uat@oatcake.test', 'HR (Talent & Culture)', $password],
                 ['manager', 'fom_uat', 'fom.uat@oatcake.test', 'FO (MOD Eligible)', $password],
                 ['manager', 'hkm_uat', 'hkm.uat@oatcake.test', 'HK (MOD Eligible)', $password],
                 ['user', 'fo_staff1', 'fo.staff1@oatcake.test', 'FO (Mode A #1)', $password],

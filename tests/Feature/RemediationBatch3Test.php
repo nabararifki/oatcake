@@ -20,7 +20,7 @@ class RemediationBatch3Test extends TestCase
         $this->get('/register')->assertNotFound();
         $this->get('/forgot-password')->assertOk();
 
-        $admin = User::factory()->create(['role' => 'admin']);
+        $admin = User::factory()->create(['role' => 'admin_hr']);
 
         $this->actingAs($admin)->patch('/preferences')->assertNotFound();
         $this->actingAs($admin)->get('/dashboard/today-schedules')->assertNotFound();
@@ -153,7 +153,7 @@ class RemediationBatch3Test extends TestCase
 
         $admin = User::factory()->create([
             'company_id' => $company->id,
-            'role' => 'admin',
+            'role' => 'admin_hr',
         ]);
 
         // Sidebar and mobile drawer highlight Company Settings on canonical settings.company route

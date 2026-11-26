@@ -328,7 +328,7 @@ class UniversalSelfieTest extends TestCase
     {
         $admin = User::factory()->create([
             'company_id' => $this->company->id,
-            'role' => 'admin',
+            'role' => 'admin_hr',
             'is_active' => true,
         ]);
 
@@ -365,7 +365,7 @@ class UniversalSelfieTest extends TestCase
     {
         $admin = User::factory()->create([
             'company_id' => $this->company->id,
-            'role' => 'admin',
+            'role' => 'admin_hr',
             'is_active' => true,
         ]);
 

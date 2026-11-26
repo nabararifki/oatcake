@@ -1,7 +1,7 @@
-const CACHE_VERSION = 'oatcake-pwa-v2';
-const STATIC_CACHE = 'oatcake-static-v2';
-const PAGES_CACHE = 'oatcake-pages-v2';
-const DATA_CACHE = 'oatcake-data-v2';
+const CACHE_VERSION = 'oatcake-pwa-v3';
+const STATIC_CACHE = 'oatcake-static-v3';
+const PAGES_CACHE = 'oatcake-pages-v3';
+const DATA_CACHE = 'oatcake-data-v3';
 const ACTIVE_CACHES = [STATIC_CACHE, PAGES_CACHE, DATA_CACHE];
 
 const PRECACHE_URLS = [

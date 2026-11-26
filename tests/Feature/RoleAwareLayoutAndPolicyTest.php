@@ -55,12 +55,10 @@ class RoleAwareLayoutAndPolicyTest extends TestCase
             'is_executive_oversight' => false,
         ]);
 
-        $tagHod = Tag::withoutGlobalScopes()->create([
-            'company_id' => $company->id,
-            'code' => 'HOD',
-            'name' => 'Head of Department',
-            'badge_color' => '#4F46E5',
-        ]);
+        $tagHod = Tag::withoutGlobalScopes()->firstOrCreate(
+            ['company_id' => $company->id, 'code' => 'HOD'],
+            ['name' => 'Head of Department', 'badge_color' => '#4F46E5']
+        );
 
         $superAdmin = User::create([
             'company_id' => null,
@@ -78,7 +76,7 @@ class RoleAwareLayoutAndPolicyTest extends TestCase
             'username' => 'diana_hr_admin',
             'email' => 'diana.hr@novotel-yia.com',
             'password' => Hash::make('Password123!'),
-            'role' => 'admin',
+            'role' => 'admin_hr',
             'is_active' => true,
         ]);
 

@@ -40,7 +40,7 @@ class AttendanceVerificationController extends Controller
             ? Company::find(session('active_company_id'))
             : ($user->company ?? Company::first());
 
-        $isManager = $user->isManager();
+        $isManager = $user->isSupervisorOrManager();
         $managerDeptId = $isManager ? $user->employee?->department_id : null;
 
         $departmentsQuery = Department::withoutGlobalScopes()
@@ -95,7 +95,7 @@ class AttendanceVerificationController extends Controller
                     'department' => fn ($dq) => $dq->withoutGlobalScopes(),
                 ]),
                 'workSchedule' => fn ($wq) => $wq->withoutGlobalScopes()->with([
-                    'shift' => fn ($sq) => $sq->withoutGlobalScopes(),
+                    'shift' => fn ($sq) => $sq->withoutGlobalScopes()->withTrashed(),
                 ]),
                 'verifier',
             ]);

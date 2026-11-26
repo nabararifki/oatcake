@@ -296,7 +296,7 @@ class UatMitraSeeder extends Seeder
                 'name' => 'Talent & Culture Admin UAT',
                 'username' => 'hr_uat',
                 'password' => $passwordHash,
-                'role' => 'admin',
+                'role' => 'admin_hr',
                 'is_active' => true,
                 'email_verified_at' => $nowWib,
                 'locale' => 'id',

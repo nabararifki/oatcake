@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Http\Requests\StoreEmployeeUserRequest;
 use App\Http\Requests\UpdateEmployeeRequest;
+use App\Models\Company;
 use App\Models\Department;
 use App\Models\Employee;
 use App\Models\Tag;
@@ -27,7 +28,7 @@ class StaffProvisioningController extends Controller
      */
     protected function ensureAuthorized(?User $user): void
     {
-        if (! $user || ! $user->is_active || ! in_array($user->role, ['manager', 'admin', 'super_user', 'super_admin'], true)) {
+        if (! $user || ! $user->is_active || ! in_array($user->role, ['manager', 'admin_hr', 'super_user', 'super_admin'], true)) {
             abort(403, 'Anda tidak memiliki akses ke modul provisioning staf.');
         }
     }
@@ -50,7 +51,7 @@ class StaffProvisioningController extends Controller
     }
 
     /**
-     * Display a listing of active company staff.
+     * Display a listing of company staff with advanced filtering (department, role, status, tag, and zero-NIK search).
      */
     public function index(Request $request): View
     {
@@ -59,20 +60,119 @@ class StaffProvisioningController extends Controller
 
         $actor->loadMissing(['company', 'employee.department']);
 
-        $query = Employee::with(['user', 'department', 'manager.user', 'tags'])
-            ->active()
-            ->orderBy('id');
+        $company = $actor->isSuperAdmin() && session('active_company_id')
+            ? Company::find(session('active_company_id'))
+            : $actor->company;
 
-        if ($actor->isManager()) {
-            $managerDeptId = $actor->employee?->department_id;
-            $query->where('department_id', $managerDeptId ?? 0);
+        $canFilterDepartment = $actor->isAdminOrAbove();
+        $filterSearch = trim((string) $request->query('search', ''));
+        $filterDepartmentId = $request->filled('department_id') ? (int) $request->query('department_id') : null;
+        $filterRole = trim((string) $request->query('role', ''));
+        $filterStatus = trim((string) $request->query('status', ''));
+        $filterTagId = $request->filled('tag_id') ? (int) $request->query('tag_id') : null;
+
+        $effectiveDepartmentId = $actor->isManager()
+            ? ($actor->employee?->department_id ?? 0)
+            : $filterDepartmentId;
+
+        $validRoles = array_keys(User::ROLE_RANKS);
+        $validStatuses = ['active', 'inactive', 'on_leave', 'resigned', 'suspended'];
+        $likeOperator = DB::connection()->getDriverName() === 'pgsql' ? 'ilike' : 'like';
+
+        $employees = Employee::with(['user', 'department', 'manager.user', 'tags'])
+            ->when($effectiveDepartmentId !== null, fn ($q) => $q->where('department_id', $effectiveDepartmentId))
+            ->when(
+                $filterRole !== '' && in_array($filterRole, $validRoles, true),
+                fn ($q) => $q->whereHas('user', fn ($uq) => $uq->where('role', $filterRole))
+            )
+            ->when(
+                $filterStatus !== '' && $filterStatus !== 'all' && in_array($filterStatus, $validStatuses, true),
+                fn ($q) => $q->where('status', $filterStatus)
+            )
+            ->when(
+                $filterTagId !== null,
+                fn ($q) => $q->whereHas('tags', fn ($tq) => $tq->withoutGlobalScopes()->where('tags.id', $filterTagId))
+            )
+            ->when($filterSearch !== '', function ($q) use ($filterSearch, $likeOperator): void {
+                $pattern = "%{$filterSearch}%";
+
+                // Strict Zero NIK: search only across position, name, email, and username.
+                $q->where(function ($sub) use ($pattern, $likeOperator): void {
+                    $sub->where('position', $likeOperator, $pattern)
+                        ->orWhereHas('user', function ($uq) use ($pattern, $likeOperator): void {
+                            $uq->where('name', $likeOperator, $pattern)
+                                ->orWhere('email', $likeOperator, $pattern)
+                                ->orWhere('username', $likeOperator, $pattern);
+                        });
+                });
+            })
+            ->orderBy('id')
+            ->get();
+
+        $departments = $canFilterDepartment
+            ? Department::orderBy('name')->get()
+            : ($actor->employee?->department ? collect([$actor->employee->department]) : collect());
+
+        $tags = Tag::orderBy('name')->get();
+
+        $availableRoles = $actor->isSuperAdmin()
+            ? ['super_admin', 'super_user', 'admin_hr', 'manager', 'admin_staff', 'user']
+            : ['super_user', 'admin_hr', 'manager', 'admin_staff', 'user'];
+
+        $filters = [
+            'search' => $filterSearch,
+            'department_id' => $canFilterDepartment ? ($filterDepartmentId ?? '') : ($actor->employee?->department_id ?? ''),
+            'role' => $filterRole,
+            'status' => $filterStatus,
+            'tag_id' => $filterTagId ?? '',
+        ];
+
+        return view('staff.index', compact(
+            'employees',
+            'company',
+            'actor',
+            'departments',
+            'tags',
+            'availableRoles',
+            'canFilterDepartment',
+            'filters'
+        ));
+    }
+
+    /**
+     * Build the dynamic role hierarchy guide filtered to roles at or below the actor's rank.
+     *
+     * @return list<array{key: string, rank: int, label: string, description: string}>
+     */
+    protected function buildRoleHierarchyGuide(User $actor): array
+    {
+        $actorRank = $actor->roleRank();
+        $ranks = User::ROLE_RANKS;
+        arsort($ranks);
+
+        $guide = [];
+        foreach ($ranks as $roleKey => $rank) {
+            if ($roleKey === 'super_admin' || $rank > $actorRank) {
+                continue;
+            }
+
+            $labelKey = 'staff.role_' . $roleKey;
+            $resolvedLabel = __($labelKey) !== $labelKey
+                ? __($labelKey)
+                : strtoupper(str_replace('_', ' ', $roleKey));
+
+            $descKey = 'staff.role_guide_desc_' . $roleKey;
+            $resolvedDesc = __($descKey) !== $descKey ? __($descKey) : '';
+
+            $guide[] = [
+                'key' => $roleKey,
+                'rank' => $rank,
+                'label' => $resolvedLabel,
+                'description' => $resolvedDesc,
+            ];
         }
 
-        $employees = $query->get();
-
-        $company = $actor->company;
-
-        return view('staff.index', compact('employees', 'company', 'actor'));
+        return $guide;
     }
 
     /**
@@ -93,6 +193,7 @@ class StaffProvisioningController extends Controller
             ->get();
 
         $allowedRoles = StoreEmployeeUserRequest::allowedRolesFor($actor);
+        $roleHierarchyGuide = $this->buildRoleHierarchyGuide($actor);
         $isManager = $actor->isManager();
         $lockedDepartmentId = $isManager ? $actor->employee?->department_id : null;
 
@@ -102,6 +203,7 @@ class StaffProvisioningController extends Controller
             'tags',
             'managers',
             'allowedRoles',
+            'roleHierarchyGuide',
             'isManager',
             'lockedDepartmentId'
         ));
@@ -141,9 +243,7 @@ class StaffProvisioningController extends Controller
                 'status' => 'active',
             ]);
 
-            if (! empty($validated['tags'])) {
-                $employee->tags()->sync($request->tags);
-            }
+            $employee->tags()->sync($validated['tags'] ?? []);
         });
 
         return redirect()
@@ -187,6 +287,7 @@ class StaffProvisioningController extends Controller
             ->get();
 
         $allowedRoles = StoreEmployeeUserRequest::allowedRolesFor($actor);
+        $roleHierarchyGuide = $this->buildRoleHierarchyGuide($actor);
         $isManager = $actor->isManager();
         $lockedDepartmentId = $isManager ? $actor->employee?->department_id : null;
 
@@ -197,6 +298,7 @@ class StaffProvisioningController extends Controller
             'tags',
             'managers',
             'allowedRoles',
+            'roleHierarchyGuide',
             'isManager',
             'lockedDepartmentId'
         ));

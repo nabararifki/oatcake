@@ -13,6 +13,7 @@ use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\PushSubscriptionController;
 use App\Http\Controllers\PwaController;
 use App\Http\Controllers\RosterController;
+use App\Http\Controllers\ShiftController;
 use App\Http\Controllers\StaffProvisioningController;
 use Illuminate\Support\Facades\Route;
 
@@ -61,10 +62,12 @@ Route::middleware('auth')->group(function () {
     Route::post('/roster/publish', [RosterController::class, 'publish'])->name('roster.publish');
     Route::post('/roster/unpublish', [RosterController::class, 'unpublish'])->name('roster.unpublish');
     Route::post('/roster/discard', [RosterController::class, 'discardDrafts'])->name('roster.discard');
-    Route::post('/roster/shifts', [RosterController::class, 'storeShift'])->name('roster.shifts.store');
-    Route::put('/roster/shifts/{shift}', [RosterController::class, 'updateShift'])->name('roster.shifts.update');
+    Route::post('/roster/shifts', [ShiftController::class, 'store'])->name('roster.shifts.store');
+    Route::put('/roster/shifts/{shift}', [ShiftController::class, 'update'])->name('roster.shifts.update');
+    Route::delete('/roster/shifts/{shift}', [ShiftController::class, 'destroy'])->name('roster.shifts.destroy');
 
     Route::get('/attendance', [AttendanceController::class, 'index'])->name('attendance.index');
+    Route::get('/attendance/export', [AttendanceController::class, 'export'])->name('attendance.export');
     Route::post('/attendance/clock-in', [AttendanceController::class, 'clockIn'])->name('attendance.clockIn');
     Route::post('/attendance/outside-clock-in', [AttendanceController::class, 'clockInOutside'])->name('attendance.clockInOutside');
     Route::post('/attendance/clock-out', [AttendanceController::class, 'clockOut'])->name('attendance.clockOut');
@@ -115,6 +118,10 @@ Route::middleware('auth')->group(function () {
     Route::post('/settings/holidays', [CompanySettingsController::class, 'storeHoliday'])->name('settings.holidays.store');
     Route::put('/settings/holidays/{publicHoliday}', [CompanySettingsController::class, 'updateHoliday'])->name('settings.holidays.update');
     Route::delete('/settings/holidays/{publicHoliday}', [CompanySettingsController::class, 'destroyHoliday'])->name('settings.holidays.destroy');
+
+    Route::post('/settings/tags', [CompanySettingsController::class, 'storeTag'])->name('settings.tags.store');
+    Route::put('/settings/tags/{tag}', [CompanySettingsController::class, 'updateTag'])->name('settings.tags.update');
+    Route::delete('/settings/tags/{tag}', [CompanySettingsController::class, 'destroyTag'])->name('settings.tags.destroy');
 
     Route::post('/admin/companies', [CompanySettingsController::class, 'store'])->name('admin.companies.store');
     Route::post('/company/switch', [DashboardController::class, 'switchCompany'])->name('company.switch');

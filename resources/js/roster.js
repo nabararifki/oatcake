@@ -28,6 +28,25 @@ export function registerRosterMatrix(Alpine) {
         staffColumnCollapsed: false,
         savingShiftId: null,
         shiftFormFeedback: '',
+        shiftModalError: '',
+
+        // Click-to-Assign Paint Mode State (Dual-Mode alongside Drag-and-Drop)
+        activePaintShiftId: null, // null | number (shift.id) | 'OFF'
+        paintingCells: {},
+
+        // Edit & Soft-Delete Master Shift Modal State
+        editingShift: {
+            id: null,
+            uuid: '',
+            code: '',
+            name: '',
+            start_time: '09:00',
+            end_time: '17:00',
+            grace_period_minutes: 15,
+            color_badge: '#3B82F6',
+        },
+        deletingShift: null,
+        deletingShiftBusy: false,
 
         // New Master Shift Form State
         showNewShiftForm: false,
@@ -41,7 +60,7 @@ export function registerRosterMatrix(Alpine) {
             color_badge: '#3B82F6',
         },
 
-        // Native HTML5 Drag-and-Drop & Mobile Touch-Drag State (Strict Drag-Only)
+        // Native HTML5 Drag-and-Drop & Mobile Touch-Drag State
         dragPayload: null,
         activeTouchShift: null,
         touchDragPreviewEl: null,
@@ -57,6 +76,7 @@ export function registerRosterMatrix(Alpine) {
         discardUrl: config.discardUrl || '/roster/discard',
         storeShiftUrl: config.storeShiftUrl || '/roster/shifts',
         updateShiftUrlTemplate: config.updateShiftUrlTemplate || '/roster/shifts/__ID__',
+        destroyShiftUrlTemplate: config.destroyShiftUrlTemplate || '/roster/shifts/__ID__',
         csrfToken: document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '',
 
         savingState: 'idle', // 'idle' | 'saving' | 'saved' | 'error'
@@ -69,6 +89,7 @@ export function registerRosterMatrix(Alpine) {
             employeeId: null,
             dateStr: '',
             shiftId: null,
+            scheduleId: null,
             isOff: false,
             restHours: 0,
             message: '',
@@ -417,7 +438,76 @@ export function registerRosterMatrix(Alpine) {
             return this.getMaxWeeklyHours(empId) > 40;
         },
 
-        async assignShift(empId, dateStr, shiftId = null, overrideWarning = false, isOff = false) {
+        togglePaintShift(shiftIdOrOff) {
+            if (!this.canEdit) return;
+            const target = shiftIdOrOff === 'OFF' ? 'OFF' : Number(shiftIdOrOff);
+            if (this.activePaintShiftId === target) {
+                this.activePaintShiftId = null;
+            } else {
+                this.activePaintShiftId = target;
+            }
+        },
+
+        isPaintShiftActive(shiftIdOrOff) {
+            if (this.activePaintShiftId === null) return false;
+            const target = shiftIdOrOff === 'OFF' ? 'OFF' : Number(shiftIdOrOff);
+            return this.activePaintShiftId === target;
+        },
+
+        get activePaintShiftLabel() {
+            if (this.activePaintShiftId === null) return '';
+            if (this.activePaintShiftId === 'OFF') return 'OFF';
+            return this.getShiftById(this.activePaintShiftId)?.code || '';
+        },
+
+        isCellPainting(empId, dateStr) {
+            return Boolean(this.paintingCells[`${empId}_${dateStr}`]);
+        },
+
+        isCellLeaveLocked(empId, dateStr) {
+            const list = this.getSchedules(empId, dateStr);
+            return list.some(
+                (s) => s && (Boolean(s.is_leave_locked) || (typeof s.notes === 'string' && s.notes.startsWith('LEAVE:')))
+            );
+        },
+
+        async handleCellClick(empId, dateStr, event = null) {
+            if (event && typeof event.stopPropagation === 'function') {
+                event.stopPropagation();
+            }
+            if (!this.canEdit || this.activePaintShiftId === null) return;
+
+            if (this.isCellLeaveLocked(empId, dateStr)) {
+                this.savingState = 'error';
+                this.statusMessage = this.i18n.paintLeaveLockedBlocked || '';
+                return;
+            }
+
+            const cellKey = `${empId}_${dateStr}`;
+            if (this.paintingCells[cellKey]) return;
+
+            const isOff = this.activePaintShiftId === 'OFF';
+            const shiftId = isOff ? null : Number(this.activePaintShiftId);
+            const existingList = this.getSchedules(empId, dateStr);
+            const overwriteScheduleId =
+                existingList.length === 1 &&
+                existingList[0] &&
+                existingList[0].status !== 'pending_delete' &&
+                !existingList[0].is_leave_locked
+                    ? existingList[0].id
+                    : null;
+
+            this.paintingCells = { ...this.paintingCells, [cellKey]: true };
+            try {
+                await this.assignShift(empId, dateStr, shiftId, false, isOff, overwriteScheduleId);
+            } finally {
+                const nextCells = { ...this.paintingCells };
+                delete nextCells[cellKey];
+                this.paintingCells = nextCells;
+            }
+        },
+
+        async assignShift(empId, dateStr, shiftId = null, overrideWarning = false, isOff = false, scheduleId = null) {
             if (!this.canEdit) return;
 
             if (!isOff && (shiftId === null || shiftId === undefined || shiftId === '' || Number.isNaN(Number(shiftId)))) {
@@ -428,16 +518,21 @@ export function registerRosterMatrix(Alpine) {
             this.savingState = 'saving';
 
             try {
+                const payload = {
+                    employee_id: Number(empId),
+                    schedule_date: dateStr,
+                    shift_id: resolvedShiftId,
+                    status: 'draft',
+                    override_warning: overrideWarning,
+                    force: overrideWarning,
+                };
+                if (scheduleId !== null && scheduleId !== undefined && scheduleId !== '') {
+                    payload.schedule_id = Number(scheduleId);
+                }
+
                 const response = await window.axios.post(
                     this.assignUrl,
-                    {
-                        employee_id: Number(empId),
-                        schedule_date: dateStr,
-                        shift_id: resolvedShiftId,
-                        status: 'draft',
-                        override_warning: overrideWarning,
-                        force: overrideWarning,
-                    },
+                    payload,
                     {
                         headers: {
                             Accept: 'application/json',
@@ -471,6 +566,7 @@ export function registerRosterMatrix(Alpine) {
                         employeeId: Number(empId),
                         dateStr: dateStr,
                         shiftId: resolvedShiftId,
+                        scheduleId: scheduleId ? Number(scheduleId) : null,
                         isOff: isOff,
                         restHours: error.response.data.rest_hours ?? 0,
                         message: error.response.data.message || this.i18n.turnaroundDefault || '',
@@ -483,8 +579,8 @@ export function registerRosterMatrix(Alpine) {
             }
         },
 
-        async assignCell(empId, dateStr, shiftId = null, overrideWarning = false, isOff = false) {
-            return this.assignShift(empId, dateStr, shiftId, overrideWarning, isOff);
+        async assignCell(empId, dateStr, shiftId = null, overrideWarning = false, isOff = false, scheduleId = null) {
+            return this.assignShift(empId, dateStr, shiftId, overrideWarning, isOff, scheduleId);
         },
 
         confirmTurnaroundOverride() {
@@ -496,10 +592,11 @@ export function registerRosterMatrix(Alpine) {
             const empId = this.turnaroundModal.employeeId;
             const dateStr = this.turnaroundModal.dateStr;
             const shiftId = this.turnaroundModal.shiftId;
+            const scheduleId = this.turnaroundModal.scheduleId;
             const isOff = this.turnaroundModal.isOff;
 
             this.turnaroundModal.open = false;
-            this.assignShift(empId, dateStr, shiftId, true, isOff);
+            this.assignShift(empId, dateStr, shiftId, true, isOff, scheduleId);
         },
 
         async removeScheduleById(empId, dateStr, scheduleId, event = null) {
@@ -780,6 +877,72 @@ export function registerRosterMatrix(Alpine) {
             }
         },
 
+        openEditShiftModal(shiftItem) {
+            if (!this.canEdit || !shiftItem) return;
+            this.shiftModalError = '';
+            this.editingShift = {
+                id: shiftItem.id,
+                uuid: shiftItem.uuid || '',
+                code: shiftItem.code || '',
+                name: shiftItem.name || '',
+                start_time: this.formatTimeShort(shiftItem.start_time || '09:00'),
+                end_time: this.formatTimeShort(shiftItem.end_time || '17:00'),
+                grace_period_minutes: Number(shiftItem.grace_period_minutes ?? 15),
+                color_badge: shiftItem.color_badge || '#3B82F6',
+            };
+            window.dispatchEvent(new CustomEvent('open-modal', { detail: 'edit-shift-modal' }));
+        },
+
+        async submitEditShift() {
+            if (!this.canEdit || !this.editingShift?.id) return;
+            this.savingShiftId = this.editingShift.id;
+            this.savingState = 'saving';
+            this.shiftModalError = '';
+            const url = this.updateShiftUrlTemplate.replace('__ID__', this.editingShift.uuid || this.editingShift.id);
+
+            try {
+                const response = await window.axios.put(
+                    url,
+                    {
+                        code: String(this.editingShift.code || '').trim().toUpperCase(),
+                        name: String(this.editingShift.name || '').trim(),
+                        start_time: this.formatTimeShort(this.editingShift.start_time),
+                        end_time: this.formatTimeShort(this.editingShift.end_time),
+                        grace_period_minutes: Number(this.editingShift.grace_period_minutes ?? 15),
+                        color_badge: this.editingShift.color_badge || '#3B82F6',
+                    },
+                    {
+                        headers: {
+                            Accept: 'application/json',
+                            'X-CSRF-TOKEN': this.csrfToken,
+                        },
+                    }
+                );
+
+                const updated = response.data.shift;
+                const idx = this.shifts.findIndex((s) => Number(s.id) === Number(updated.id));
+                if (idx !== -1) {
+                    this.shifts[idx] = updated;
+                    this.shifts = [...this.shifts];
+                }
+
+                this.savingShiftId = null;
+                this.savingState = 'saved';
+                this.statusMessage = response.data.message || this.i18n.shiftUpdated || '';
+                this.shiftFormFeedback = response.data.message || this.i18n.shiftUpdated || '';
+                window.dispatchEvent(new CustomEvent('close-modal', { detail: 'edit-shift-modal' }));
+                setTimeout(() => {
+                    this.shiftFormFeedback = '';
+                }, 3000);
+            } catch (error) {
+                this.savingShiftId = null;
+                this.savingState = 'error';
+                const errMsg = error?.response?.data?.message || this.i18n.saveFailed || '';
+                this.shiftModalError = errMsg;
+                this.statusMessage = errMsg;
+            }
+        },
+
         async updateMasterShift(shiftItem) {
             if (!this.canEdit || !shiftItem) return;
             this.savingShiftId = shiftItem.id;
@@ -790,6 +953,7 @@ export function registerRosterMatrix(Alpine) {
                 const response = await window.axios.put(
                     url,
                     {
+                        code: String(shiftItem.code || '').trim().toUpperCase(),
                         name: shiftItem.name,
                         start_time: this.formatTimeShort(shiftItem.start_time),
                         end_time: this.formatTimeShort(shiftItem.end_time),
@@ -805,9 +969,10 @@ export function registerRosterMatrix(Alpine) {
                 );
 
                 const updated = response.data.shift;
-                const idx = this.shifts.findIndex((s) => s.id === updated.id);
+                const idx = this.shifts.findIndex((s) => Number(s.id) === Number(updated.id));
                 if (idx !== -1) {
                     this.shifts[idx] = updated;
+                    this.shifts = [...this.shifts];
                 }
 
                 this.savingShiftId = null;
@@ -821,6 +986,56 @@ export function registerRosterMatrix(Alpine) {
                 this.savingShiftId = null;
                 this.savingState = 'error';
                 this.statusMessage = error?.response?.data?.message || this.i18n.saveFailed || '';
+            }
+        },
+
+        openDeleteShiftModal(shiftItem) {
+            if (!this.canEdit || !shiftItem) return;
+            this.shiftModalError = '';
+            this.deletingShift = { ...shiftItem };
+            window.dispatchEvent(new CustomEvent('open-modal', { detail: 'delete-shift-modal' }));
+        },
+
+        async confirmDeleteShift() {
+            if (!this.canEdit || !this.deletingShift?.id || this.deletingShiftBusy) return;
+            this.deletingShiftBusy = true;
+            this.savingState = 'saving';
+            this.shiftModalError = '';
+            const targetId = Number(this.deletingShift.id);
+            const url = this.destroyShiftUrlTemplate.replace('__ID__', this.deletingShift.uuid || targetId);
+
+            try {
+                const response = await window.axios.delete(url, {
+                    params: {
+                        month: this.month,
+                        year: this.year,
+                    },
+                    headers: {
+                        Accept: 'application/json',
+                        'X-CSRF-TOKEN': this.csrfToken,
+                    },
+                });
+
+                this.shifts = this.shifts.filter((s) => Number(s.id) !== targetId);
+                if (this.activePaintShiftId !== 'OFF' && Number(this.activePaintShiftId) === targetId) {
+                    this.activePaintShiftId = null;
+                }
+
+                this.deletingShiftBusy = false;
+                this.deletingShift = null;
+                this.savingState = 'saved';
+                this.statusMessage = response.data.message || this.i18n.shiftDeleted || '';
+                this.shiftFormFeedback = response.data.message || this.i18n.shiftDeleted || '';
+                window.dispatchEvent(new CustomEvent('close-modal', { detail: 'delete-shift-modal' }));
+                setTimeout(() => {
+                    this.shiftFormFeedback = '';
+                }, 3000);
+            } catch (error) {
+                this.deletingShiftBusy = false;
+                this.savingState = 'error';
+                const errMsg = error?.response?.data?.message || this.i18n.saveFailed || '';
+                this.shiftModalError = errMsg;
+                this.statusMessage = errMsg;
             }
         },
 

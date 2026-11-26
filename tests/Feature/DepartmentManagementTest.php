@@ -66,7 +66,7 @@ class DepartmentManagementTest extends TestCase
             'username' => 'diana_admin',
             'email' => 'diana@novotelyia.com',
             'password' => Hash::make('Password123!'),
-            'role' => 'admin',
+            'role' => 'admin_hr',
             'is_active' => true,
         ]);
 

@@ -42,7 +42,7 @@ class CompanySettingsTest extends TestCase
             'username' => 'diana_admin',
             'email' => 'diana@novotelyia.com',
             'password' => Hash::make('Password123!'),
-            'role' => 'admin',
+            'role' => 'admin_hr',
             'is_active' => true,
         ]);
 
@@ -214,6 +214,7 @@ class CompanySettingsTest extends TestCase
             ->assertSee(__('company.cat_attendance'))
             ->assertSee(__('company.cat_storage'))
             ->assertSee(__('company.cat_holidays'))
+            ->assertSee(__('company.cat_tags'))
             ->assertSee(__('company.auto_assign_shift_label'))
             ->assertDontSee('x-if="matchesSection', false);
 

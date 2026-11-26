@@ -151,7 +151,7 @@ class RemediationBatch1Test extends TestCase
     {
         $admin = User::factory()->create([
             'company_id' => $this->company->id,
-            'role' => 'admin',
+            'role' => 'admin_hr',
             'is_active' => true,
         ]);
         $emp = $this->createEmployee('user', $this->foDept);
@@ -229,7 +229,7 @@ class RemediationBatch1Test extends TestCase
 
     public function test_block_1b_update_employee_accepts_all_aligned_statuses(): void
     {
-        $admin = $this->createEmployee('admin', $this->foDept, null, 'admin');
+        $admin = $this->createEmployee('admin_hr', $this->foDept, null, 'admin');
         $target = $this->createEmployee('user', $this->foDept, null, 'target');
 
         foreach (['inactive', 'on_leave', 'resigned', 'suspended', 'active'] as $status) {
@@ -267,7 +267,7 @@ class RemediationBatch1Test extends TestCase
     {
         $managerA = $this->createEmployee('manager', $this->foDept, null, 'mgr_a');
         $managerB = $this->createEmployee('manager', $this->foDept, null, 'mgr_b');
-        $adminEmp = $this->createEmployee('admin', $this->foDept, null, 'adm');
+        $adminEmp = $this->createEmployee('admin_hr', $this->foDept, null, 'adm');
         $superUserEmp = $this->createEmployee('super_user', $this->foDept, null, 'su');
         $staffEmp = $this->createEmployee('user', $this->foDept, null, 'stf');
 
@@ -346,7 +346,7 @@ class RemediationBatch1Test extends TestCase
         ]);
 
         $staffA = $this->createEmployee('user', $this->foDept);
-        $adminA = $this->createEmployee('admin', $this->foDept);
+        $adminA = $this->createEmployee('admin_hr', $this->foDept);
 
         $this->actingAs($staffA->user)
             ->postJson(route('leave.store'), [
@@ -567,7 +567,7 @@ class RemediationBatch1Test extends TestCase
 
         $staff = $this->createEmployee('user', $this->foDept, null, 'push_staff');
         $manager = $this->createEmployee('manager', $this->foDept, null, 'push_mgr');
-        $admin = $this->createEmployee('admin', $this->foDept, null, 'push_adm');
+        $admin = $this->createEmployee('admin_hr', $this->foDept, null, 'push_adm');
 
         // SSRF & HTTPS endpoint validation on subscription store
         $keys = [

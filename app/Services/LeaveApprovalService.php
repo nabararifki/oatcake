@@ -28,23 +28,21 @@ class LeaveApprovalService
     ) {}
 
     /**
-     * Tier 1 Approval — Department Manager (or Admin+) transitions a request from pending_manager to pending_hr.
-     * Does NOT debit the leave ledger (quota remains reserved until Tier 2 HR finalization).
+     * Tier 1 Approval.
+     * - Regular staff: Manager (or Admin+) transitions pending_manager -> pending_hr.
+     * - HOD-tagged applicant: Admin HR (or above) transitions pending_hr -> pending_manager.
+     * Does NOT debit the leave ledger (quota remains reserved until Tier 2 finalization).
      *
      * @throws ValidationException
      */
     public function approveTier1(LeaveRequest $leaveRequest, User $actor, ?string $notes = null): LeaveRequest
     {
-        $this->ensureNotManagerSelfApproval($leaveRequest, $actor);
+        $isHod = false;
+        $previousStatus = $leaveRequest->status;
 
-        if ($leaveRequest->status !== LeaveRequest::STATUS_PENDING_MANAGER) {
-            throw ValidationException::withMessages([
-                'status' => [__('leave.err_invalid_status_for_tier1')],
-            ]);
-        }
-
-        $approvedRequest = DB::transaction(function () use ($leaveRequest, $actor, $notes): LeaveRequest {
-            Employee::withoutGlobalScopes()
+        $approvedRequest = DB::transaction(function () use ($leaveRequest, $actor, $notes, &$isHod, &$previousStatus): LeaveRequest {
+            $lockedEmployee = Employee::withoutGlobalScopes()
+                ->with(['tags' => fn ($q) => $q->withoutGlobalScopes()])
                 ->whereKey($leaveRequest->employee_id)
                 ->lockForUpdate()
                 ->firstOrFail();
@@ -54,26 +52,45 @@ class LeaveApprovalService
                 ->lockForUpdate()
                 ->firstOrFail();
 
-            if ($lockedRequest->status !== LeaveRequest::STATUS_PENDING_MANAGER) {
+            $isHod = $lockedEmployee->hasTag('HOD');
+            $this->ensureNotManagerSelfApproval($lockedRequest, $actor, $isHod);
+
+            $expectedStatus = $isHod ? LeaveRequest::STATUS_PENDING_HR : LeaveRequest::STATUS_PENDING_MANAGER;
+            if ($lockedRequest->status !== $expectedStatus) {
                 throw ValidationException::withMessages([
                     'status' => [__('leave.err_invalid_status_for_tier1')],
                 ]);
             }
 
+            if ($isHod && ! $actor->isAdminOrAbove()) {
+                throw ValidationException::withMessages([
+                    'status' => [__('leave.err_invalid_status_for_tier1')],
+                ]);
+            }
+
+            $previousStatus = $lockedRequest->status;
             $now = Carbon::now('Asia/Jakarta');
             $cleanNotes = $notes !== null && trim($notes) !== '' ? trim($notes) : null;
 
-            $lockedRequest->update([
-                'status' => LeaveRequest::STATUS_PENDING_HR,
-                'manager_approved_by' => $actor->id,
-                'manager_approved_at' => $now,
-            ]);
+            if ($isHod) {
+                $lockedRequest->update([
+                    'status' => LeaveRequest::STATUS_PENDING_MANAGER,
+                    'hr_approved_by' => $actor->id,
+                    'hr_approved_at' => $now,
+                ]);
+            } else {
+                $lockedRequest->update([
+                    'status' => LeaveRequest::STATUS_PENDING_HR,
+                    'manager_approved_by' => $actor->id,
+                    'manager_approved_at' => $now,
+                ]);
+            }
 
             LeaveRequestApproval::withoutGlobalScopes()->create([
                 'company_id' => $lockedRequest->company_id,
                 'leave_request_id' => $lockedRequest->id,
                 'approver_id' => $actor->id,
-                'tier' => 1,
+                'tier' => LeaveRequestApproval::TIER_MANAGER,
                 'action' => LeaveRequestApproval::ACTION_APPROVED,
                 'notes' => $cleanNotes,
                 'smart_score_snapshot' => $lockedRequest->smart_score,
@@ -86,25 +103,30 @@ class LeaveApprovalService
         ($this->auditTrailService ?? app(AuditTrailService::class))->record(
             'approved_tier1',
             $approvedRequest,
-            ['status' => LeaveRequest::STATUS_PENDING_MANAGER],
+            ['status' => $previousStatus],
             array_filter([
-                'status' => LeaveRequest::STATUS_PENDING_HR,
-                'manager_approved_by' => $actor->id,
+                'status' => $approvedRequest->status,
+                'manager_approved_by' => $approvedRequest->manager_approved_by,
+                'hr_approved_by' => $approvedRequest->hr_approved_by,
                 'notes' => $notes !== null && trim($notes) !== '' ? trim($notes) : null,
             ], static fn ($v) => $v !== null),
-            "Tier 1 manager approval for leave request #{$approvedRequest->id}",
-            ['tier' => 1],
+            $isHod
+                ? "Tier 1 HR approval (HOD flow) for leave request #{$approvedRequest->id}"
+                : "Tier 1 manager approval for leave request #{$approvedRequest->id}",
+            ['tier' => 1, 'is_hod' => $isHod],
             $actor,
             (int) $approvedRequest->company_id
         );
 
-        $this->dispatchTier1ApprovedNotifications($approvedRequest, $actor);
+        $this->dispatchTier1ApprovedNotifications($approvedRequest, $actor, $isHod);
 
         return $approvedRequest;
     }
 
     /**
-     * Tier 2 Approval — Final HR / Admin approval.
+     * Tier 2 Final Approval.
+     * - Regular staff: Final HR / Admin approval (pending_hr -> approved).
+     * - HOD-tagged applicant: Direct superior (manager_id) or Super User/Super Admin fallback (pending_manager -> approved).
      * Atomically depletes the leave ledger via FIFO (if requires_quota), transitions status to approved,
      * syncs the employee's roster schedules to OFF, and recalculates overlapping pending requests' SPK SMART scores.
      *
@@ -112,14 +134,12 @@ class LeaveApprovalService
      */
     public function approveTier2(LeaveRequest $leaveRequest, User $actor, ?string $notes = null): LeaveRequest
     {
-        if ($leaveRequest->status !== LeaveRequest::STATUS_PENDING_HR) {
-            throw ValidationException::withMessages([
-                'status' => [__('leave.err_invalid_status_for_tier2')],
-            ]);
-        }
+        $isHod = false;
+        $previousStatus = $leaveRequest->status;
 
-        $approvedRequest = DB::transaction(function () use ($leaveRequest, $actor, $notes): LeaveRequest {
+        $approvedRequest = DB::transaction(function () use ($leaveRequest, $actor, $notes, &$isHod, &$previousStatus): LeaveRequest {
             $lockedEmployee = Employee::withoutGlobalScopes()
+                ->with(['tags' => fn ($q) => $q->withoutGlobalScopes()])
                 ->whereKey($leaveRequest->employee_id)
                 ->lockForUpdate()
                 ->firstOrFail();
@@ -130,7 +150,27 @@ class LeaveApprovalService
                 ->lockForUpdate()
                 ->firstOrFail();
 
-            if ($lockedRequest->status !== LeaveRequest::STATUS_PENDING_HR) {
+            $isHod = $lockedEmployee->hasTag('HOD');
+            $this->ensureNotManagerSelfApproval($lockedRequest, $actor, $isHod);
+
+            $expectedStatus = $isHod ? LeaveRequest::STATUS_PENDING_MANAGER : LeaveRequest::STATUS_PENDING_HR;
+            if ($lockedRequest->status !== $expectedStatus) {
+                throw ValidationException::withMessages([
+                    'status' => [__('leave.err_invalid_status_for_tier2')],
+                ]);
+            }
+
+            if ($isHod) {
+                $isDirectManager = $actor->employee !== null
+                    && $lockedEmployee->manager_id !== null
+                    && (int) $actor->employee->id === (int) $lockedEmployee->manager_id;
+
+                if (! $actor->isSuperAdmin() && ! $actor->isSuperUser() && ! $isDirectManager) {
+                    throw ValidationException::withMessages([
+                        'status' => [__('leave.err_invalid_status_for_tier2')],
+                    ]);
+                }
+            } elseif (! $actor->isAdminOrAbove()) {
                 throw ValidationException::withMessages([
                     'status' => [__('leave.err_invalid_status_for_tier2')],
                 ]);
@@ -171,20 +211,30 @@ class LeaveApprovalService
                 }
             }
 
+            $previousStatus = $lockedRequest->status;
             $now = Carbon::now('Asia/Jakarta');
 
-            $lockedRequest->update([
-                'status' => LeaveRequest::STATUS_APPROVED,
-                'ledger_entry_id' => $ledgerEntryId,
-                'hr_approved_by' => $actor->id,
-                'hr_approved_at' => $now,
-            ]);
+            if ($isHod) {
+                $lockedRequest->update([
+                    'status' => LeaveRequest::STATUS_APPROVED,
+                    'ledger_entry_id' => $ledgerEntryId,
+                    'manager_approved_by' => $actor->id,
+                    'manager_approved_at' => $now,
+                ]);
+            } else {
+                $lockedRequest->update([
+                    'status' => LeaveRequest::STATUS_APPROVED,
+                    'ledger_entry_id' => $ledgerEntryId,
+                    'hr_approved_by' => $actor->id,
+                    'hr_approved_at' => $now,
+                ]);
+            }
 
             LeaveRequestApproval::withoutGlobalScopes()->create([
                 'company_id' => $lockedRequest->company_id,
                 'leave_request_id' => $lockedRequest->id,
                 'approver_id' => $actor->id,
-                'tier' => 2,
+                'tier' => LeaveRequestApproval::TIER_HR,
                 'action' => LeaveRequestApproval::ACTION_APPROVED,
                 'notes' => $cleanNotes,
                 'smart_score_snapshot' => $lockedRequest->smart_score,
@@ -200,15 +250,18 @@ class LeaveApprovalService
         ($this->auditTrailService ?? app(AuditTrailService::class))->record(
             'approved_tier2',
             $approvedRequest,
-            ['status' => LeaveRequest::STATUS_PENDING_HR],
+            ['status' => $previousStatus],
             array_filter([
                 'status' => LeaveRequest::STATUS_APPROVED,
-                'hr_approved_by' => $actor->id,
+                'manager_approved_by' => $approvedRequest->manager_approved_by,
+                'hr_approved_by' => $approvedRequest->hr_approved_by,
                 'ledger_entry_id' => $approvedRequest->ledger_entry_id,
                 'notes' => $notes !== null && trim($notes) !== '' ? trim($notes) : null,
             ], static fn ($v) => $v !== null),
-            "Tier 2 final HR approval for leave request #{$approvedRequest->id}",
-            ['tier' => 2],
+            $isHod
+                ? "Tier 2 final superior approval (HOD flow) for leave request #{$approvedRequest->id}"
+                : "Tier 2 final HR approval for leave request #{$approvedRequest->id}",
+            ['tier' => 2, 'is_hod' => $isHod],
             $actor,
             (int) $approvedRequest->company_id
         );
@@ -219,15 +272,13 @@ class LeaveApprovalService
     }
 
     /**
-     * Reject a pending leave request (Tier 1 if pending_manager, Tier 2 if pending_hr).
+     * Reject a pending leave request (Tier 1 or Tier 2, supporting both regular and HOD flows).
      * Releases any reserved quota without mutating the leave ledger.
      *
      * @throws ValidationException
      */
     public function reject(LeaveRequest $leaveRequest, User $actor, string $reason): LeaveRequest
     {
-        $this->ensureNotManagerSelfApproval($leaveRequest, $actor);
-
         $cleanReason = trim($reason);
         if (mb_strlen($cleanReason) < 5) {
             throw ValidationException::withMessages([
@@ -243,7 +294,8 @@ class LeaveApprovalService
 
         $previousStatus = $leaveRequest->status;
         $rejectedRequest = DB::transaction(function () use ($leaveRequest, $actor, $cleanReason, &$previousStatus): LeaveRequest {
-            Employee::withoutGlobalScopes()
+            $lockedEmployee = Employee::withoutGlobalScopes()
+                ->with(['tags' => fn ($q) => $q->withoutGlobalScopes()])
                 ->whereKey($leaveRequest->employee_id)
                 ->lockForUpdate()
                 ->firstOrFail();
@@ -259,14 +311,44 @@ class LeaveApprovalService
                 ]);
             }
 
-            if ($lockedRequest->status === LeaveRequest::STATUS_PENDING_HR && ! $actor->isAdminOrAbove()) {
-                throw ValidationException::withMessages([
-                    'status' => [__('leave.err_invalid_status_for_reject')],
-                ]);
+            $isHod = $lockedEmployee->hasTag('HOD');
+            $this->ensureNotManagerSelfApproval($lockedRequest, $actor, $isHod);
+
+            if ($isHod) {
+                if ($lockedRequest->status === LeaveRequest::STATUS_PENDING_HR && ! $actor->isAdminOrAbove()) {
+                    throw ValidationException::withMessages([
+                        'status' => [__('leave.err_invalid_status_for_reject')],
+                    ]);
+                }
+
+                if ($lockedRequest->status === LeaveRequest::STATUS_PENDING_MANAGER) {
+                    $isDirectManager = $actor->employee !== null
+                        && $lockedEmployee->manager_id !== null
+                        && (int) $actor->employee->id === (int) $lockedEmployee->manager_id;
+
+                    if (! $actor->isSuperAdmin() && ! $actor->isSuperUser() && ! $isDirectManager) {
+                        throw ValidationException::withMessages([
+                            'status' => [__('leave.err_invalid_status_for_reject')],
+                        ]);
+                    }
+                }
+
+                $tier = $lockedRequest->status === LeaveRequest::STATUS_PENDING_HR
+                    ? LeaveRequestApproval::TIER_MANAGER
+                    : LeaveRequestApproval::TIER_HR;
+            } else {
+                if ($lockedRequest->status === LeaveRequest::STATUS_PENDING_HR && ! $actor->isAdminOrAbove()) {
+                    throw ValidationException::withMessages([
+                        'status' => [__('leave.err_invalid_status_for_reject')],
+                    ]);
+                }
+
+                $tier = $lockedRequest->status === LeaveRequest::STATUS_PENDING_MANAGER
+                    ? LeaveRequestApproval::TIER_MANAGER
+                    : LeaveRequestApproval::TIER_HR;
             }
 
             $previousStatus = $lockedRequest->status;
-            $tier = $lockedRequest->status === LeaveRequest::STATUS_PENDING_MANAGER ? 1 : 2;
             $now = Carbon::now('Asia/Jakarta');
 
             $lockedRequest->update([
@@ -310,11 +392,11 @@ class LeaveApprovalService
         return $rejectedRequest;
     }
 
-    private function dispatchTier1ApprovedNotifications(LeaveRequest $leaveRequest, User $actor): void
+    private function dispatchTier1ApprovedNotifications(LeaveRequest $leaveRequest, User $actor, bool $isHod = false): void
     {
         try {
             $leaveRequest->loadMissing([
-                'employee' => fn ($q) => $q->withoutGlobalScopes()->with('user'),
+                'employee' => fn ($q) => $q->withoutGlobalScopes()->with(['user', 'manager']),
                 'leaveType' => fn ($q) => $q->withoutGlobalScopes(),
             ]);
 
@@ -335,9 +417,24 @@ class LeaveApprovalService
                 'tier' => 1,
             ];
 
-            $adminIds = $push->resolveCompanyAdmins((int) $leaveRequest->company_id, $actor->id)
-                ->pluck('id')
-                ->all();
+            if ($isHod) {
+                $recipientIds = User::where('company_id', $leaveRequest->company_id)
+                    ->where('role', 'super_user')
+                    ->where('is_active', true)
+                    ->pluck('id')
+                    ->all();
+
+                $directManagerUserId = $leaveRequest->employee?->manager?->user_id;
+                if ($directManagerUserId !== null) {
+                    $recipientIds[] = (int) $directManagerUserId;
+                }
+
+                $adminIds = array_values(array_diff(array_unique($recipientIds), [$actor->id]));
+            } else {
+                $adminIds = $push->resolveCompanyAdmins((int) $leaveRequest->company_id, $actor->id)
+                    ->pluck('id')
+                    ->all();
+            }
             if ($adminIds !== []) {
                 SendWebPushNotificationJob::dispatch(
                     $adminIds,
@@ -464,12 +561,16 @@ class LeaveApprovalService
      */
     private function syncApprovedLeaveToRoster(LeaveRequest $leaveRequest, Employee $employee): void
     {
-        $offShift = Shift::withoutGlobalScopes()->firstOrCreate(
-            [
+        $offShift = Shift::withoutGlobalScopes()
+            ->where('company_id', $leaveRequest->company_id)
+            ->where('code', 'OFF')
+            ->whereNull('deleted_at')
+            ->first();
+
+        if (! $offShift) {
+            $offShift = Shift::withoutGlobalScopes()->create([
                 'company_id' => $leaveRequest->company_id,
                 'code' => 'OFF',
-            ],
-            [
                 'name' => 'Day Off',
                 'start_time' => '00:00:00',
                 'end_time' => '00:00:00',
@@ -477,8 +578,8 @@ class LeaveApprovalService
                 'grace_period_minutes' => 0,
                 'color_badge' => '#9CA3AF',
                 'is_active' => true,
-            ]
-        );
+            ]);
+        }
 
         $start = Carbon::parse($leaveRequest->start_date, 'Asia/Jakarta')->startOfDay();
         $end = Carbon::parse($leaveRequest->end_date, 'Asia/Jakarta')->startOfDay();
@@ -492,7 +593,7 @@ class LeaveApprovalService
             $dateStr = $cursor->toDateString();
 
             $daySchedules = WorkSchedule::withoutGlobalScopes()
-                ->with(['shift' => fn ($q) => $q->withoutGlobalScopes()])
+                ->with(['shift' => fn ($q) => $q->withoutGlobalScopes()->withTrashed()])
                 ->where('company_id', $leaveRequest->company_id)
                 ->where('employee_id', $employee->id)
                 ->whereDate('schedule_date', $dateStr)
@@ -589,17 +690,14 @@ class LeaveApprovalService
     }
 
     /**
-     * Prevent a manager (or non-admin user) from approving or rejecting their own leave request.
+     * Prevent an approver from approving or rejecting their own leave request.
      *
      * @throws ValidationException
      */
-    private function ensureNotManagerSelfApproval(LeaveRequest $leaveRequest, User $actor): void
+    private function ensureNotManagerSelfApproval(LeaveRequest $leaveRequest, User $actor, bool $isHod = false): void
     {
-        if (
-            ! $actor->isAdminOrAbove()
-            && $actor->employee !== null
-            && (int) $actor->employee->id === (int) $leaveRequest->employee_id
-        ) {
+        $isSelf = $actor->employee !== null && (int) $actor->employee->id === (int) $leaveRequest->employee_id;
+        if ($isSelf && (! $actor->isAdminOrAbove() || ($isHod && ! $actor->isSuperAdmin()))) {
             throw ValidationException::withMessages([
                 'status' => [__('leave.err_self_approval_forbidden')],
             ]);

@@ -93,7 +93,7 @@
                     </select>
                 </div>
 
-                @if (! auth()->user()->isManager())
+                @if (! auth()->user()->isSupervisorOrManager())
                     <div>
                         <label for="department_id" class="block text-2xs font-semibold text-ink-muted uppercase tracking-wider mb-1">
                             {{ __('attendance.filter_department') }}

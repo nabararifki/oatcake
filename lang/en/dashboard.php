@@ -17,5 +17,6 @@ return [
     'clocked_in_summary'        => 'Clocked In: :time WIB • :status',
     'al_balance_label'          => 'Annual Leave Balance (AL)',
     'dp_balance_label'          => 'Active DP Balance (DP)',
+    'eo_balance_label'          => 'Extra Off Balance (EO)',
     'days_short'                => 'Days',
 ];

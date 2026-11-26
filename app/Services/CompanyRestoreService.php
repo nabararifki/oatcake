@@ -404,6 +404,8 @@ class CompanyRestoreService
                 $data['company_id'] = $newCompanyId;
                 if (($data['role'] ?? null) === 'super_admin') {
                     $data['role'] = 'super_user';
+                } elseif (($data['role'] ?? null) === 'admin') {
+                    $data['role'] = 'admin_hr';
                 }
                 if (empty($data['password'])) {
                     unset($data['password']);
@@ -422,6 +424,8 @@ class CompanyRestoreService
             $data['company_id'] = $newCompanyId;
             if (($data['role'] ?? null) === 'super_admin') {
                 $data['role'] = 'super_user';
+            } elseif (($data['role'] ?? null) === 'admin') {
+                $data['role'] = 'admin_hr';
             }
 
             $newId = (int) DB::table('users')->insertGetId($data);

@@ -24,10 +24,11 @@ class User extends Authenticatable
      */
     public const ROLE_RANKS = [
         'user' => 1,
-        'manager' => 2,
-        'admin' => 3,
-        'super_user' => 4,
-        'super_admin' => 5,
+        'admin_staff' => 2,
+        'manager' => 3,
+        'admin_hr' => 4,
+        'super_user' => 5,
+        'super_admin' => 6,
     ];
 
     /**
@@ -167,11 +168,27 @@ class User extends Authenticatable
     }
 
     /**
-     * Determine if the user has the admin role.
+     * Determine if the user has the admin_hr role.
+     */
+    public function isAdminHr(): bool
+    {
+        return $this->role === 'admin_hr';
+    }
+
+    /**
+     * Determine if the user has the admin_hr role (legacy alias).
      */
     public function isAdmin(): bool
     {
-        return $this->role === 'admin';
+        return $this->role === 'admin_hr';
+    }
+
+    /**
+     * Determine if the user has the admin_staff role (Supervisor / Duty Manager).
+     */
+    public function isAdminStaff(): bool
+    {
+        return $this->role === 'admin_staff';
     }
 
     /**
@@ -183,6 +200,14 @@ class User extends Authenticatable
     }
 
     /**
+     * Determine if the user has a department-scoped supervisor or manager role.
+     */
+    public function isSupervisorOrManager(): bool
+    {
+        return in_array($this->role, ['manager', 'admin_staff'], true);
+    }
+
+    /**
      * Determine if the user has the user role.
      */
     public function isUser(): bool
@@ -191,11 +216,11 @@ class User extends Authenticatable
     }
 
     /**
-     * Determine if the user holds an administrative role (admin, super_user, super_admin).
+     * Determine if the user holds an administrative role (admin_hr, super_user, super_admin).
      */
     public function isAdminOrAbove(): bool
     {
-        return in_array($this->role, ['super_admin', 'super_user', 'admin'], true);
+        return in_array($this->role, ['super_admin', 'super_user', 'admin_hr'], true);
     }
 
     /**
@@ -203,6 +228,14 @@ class User extends Authenticatable
      */
     public function isManagerOrAbove(): bool
     {
-        return in_array($this->role, ['super_admin', 'super_user', 'admin', 'manager'], true);
+        return in_array($this->role, ['super_admin', 'super_user', 'admin_hr', 'manager'], true);
+    }
+
+    /**
+     * Determine if the user holds a supervisor, managerial, or administrative role.
+     */
+    public function isSupervisorOrAbove(): bool
+    {
+        return in_array($this->role, ['super_admin', 'super_user', 'admin_hr', 'manager', 'admin_staff'], true);
     }
 }

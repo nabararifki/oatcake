@@ -72,11 +72,13 @@ class PwaController extends Controller
         $leaveBalances = [
             'AL' => 0,
             'DP' => 0,
+            'EO' => 0,
         ];
 
         if ($employee) {
             $leaveBalances['AL'] = (int) $this->leaveLedgerService->getBalance($employee, 'AL');
             $leaveBalances['DP'] = (int) $this->leaveLedgerService->getBalance($employee, 'DP');
+            $leaveBalances['EO'] = (int) $this->leaveLedgerService->getBalance($employee, 'EO');
         }
 
         $holidays = collect();
@@ -100,7 +102,7 @@ class PwaController extends Controller
                 ->published()
                 ->whereBetween('schedule_date', [$startDate->toDateString(), $endDate->toDateString()])
                 ->with([
-                    'shift' => fn ($q) => $q->withoutGlobalScopes(),
+                    'shift' => fn ($q) => $q->withoutGlobalScopes()->withTrashed(),
                     'dutyTag' => fn ($q) => $q->withoutGlobalScopes(),
                 ])
                 ->orderBy('schedule_date')
@@ -188,8 +190,8 @@ class PwaController extends Controller
             'scope' => '/',
             'display' => 'standalone',
             'orientation' => 'any',
-            'background_color' => '#090d16',
-            'theme_color' => '#0f172a',
+            'background_color' => '#ffffff',
+            'theme_color' => '#ffffff',
             'icons' => [
                 ['src' => '/icons/icon-192x192.png', 'sizes' => '192x192', 'type' => 'image/png', 'purpose' => 'any'],
                 ['src' => '/icons/icon-512x512.png', 'sizes' => '512x512', 'type' => 'image/png', 'purpose' => 'any'],

@@ -47,8 +47,8 @@ class PwaImplementationTest extends TestCase
         $this->assertSame('standalone', $manifest['display'] ?? null);
         $this->assertSame('/dashboard?source=pwa', $manifest['start_url'] ?? null);
         $this->assertSame('/', $manifest['scope'] ?? null);
-        $this->assertSame('#090d16', $manifest['background_color'] ?? null);
-        $this->assertSame('#0f172a', $manifest['theme_color'] ?? null);
+        $this->assertSame('#ffffff', $manifest['background_color'] ?? null);
+        $this->assertSame('#ffffff', $manifest['theme_color'] ?? null);
 
         $this->assertIsArray($manifest['shortcuts'] ?? null);
         $this->assertCount(3, $manifest['shortcuts']);
@@ -91,9 +91,9 @@ class PwaImplementationTest extends TestCase
         $swContent = File::get($swPath);
 
         // Penamaan cache berversi
-        $this->assertStringContainsString('oatcake-static-v2', $swContent);
-        $this->assertStringContainsString('oatcake-pages-v2', $swContent);
-        $this->assertStringContainsString('oatcake-data-v2', $swContent);
+        $this->assertStringContainsString('oatcake-static-v3', $swContent);
+        $this->assertStringContainsString('oatcake-pages-v3', $swContent);
+        $this->assertStringContainsString('oatcake-data-v3', $swContent);
 
         // Siklus hidup install & activate
         $this->assertStringContainsString('skipWaiting', $swContent);
@@ -382,15 +382,17 @@ class PwaImplementationTest extends TestCase
         $this->get('/login')
             ->assertOk()
             ->assertSee('<link rel="manifest" href="/manifest.webmanifest">', false)
-            ->assertSee('<meta name="theme-color" content="#0f172a">', false)
+            ->assertSee('<meta name="theme-color" content="#ffffff">', false)
+            ->assertSee('<meta name="apple-mobile-web-app-status-bar-style" content="default">', false)
             ->assertSee('<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">', false);
 
         foreach (['/dashboard', '/roster', '/leave'] as $route) {
             $resp = $this->actingAs($user)->get($route);
             $resp->assertOk();
             $resp->assertSee('<link rel="manifest" href="/manifest.webmanifest">', false);
-            $resp->assertSee('<meta name="theme-color" content="#0f172a">', false);
+            $resp->assertSee('<meta name="theme-color" content="#ffffff">', false);
             $resp->assertSee('<meta name="apple-mobile-web-app-capable" content="yes">', false);
+            $resp->assertSee('<meta name="apple-mobile-web-app-status-bar-style" content="default">', false);
             $resp->assertSee('<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">', false);
             $resp->assertSee('pwaManager()', false);
             $resp->assertSee('$store.pwa.installApp()', false);

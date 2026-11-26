@@ -264,19 +264,39 @@ class LeaveRequest extends Model
     }
 
     /**
-     * Determine whether the leave request can be approved at Tier 1 (Manager).
+     * Determine whether the leave applicant holds the HOD (Head of Department) tag.
      */
-    public function canBeApprovedTier1(): bool
+    public function isHodApplicant(): bool
     {
-        return $this->status === self::STATUS_PENDING_MANAGER;
+        $employee = $this->relationLoaded('employee')
+            ? $this->employee
+            : Employee::withoutGlobalScopes()
+                ->with(['tags' => fn ($q) => $q->withoutGlobalScopes()])
+                ->find($this->employee_id);
+
+        return $employee !== null && $employee->hasTag('HOD');
     }
 
     /**
-     * Determine whether the leave request can be approved at Tier 2 (Final HR/Admin).
+     * Determine whether the leave request can be approved at Tier 1.
+     * Regular staff: Manager approves (pending_manager). HOD: HR approves first (pending_hr).
+     */
+    public function canBeApprovedTier1(): bool
+    {
+        return $this->isHodApplicant()
+            ? $this->status === self::STATUS_PENDING_HR
+            : $this->status === self::STATUS_PENDING_MANAGER;
+    }
+
+    /**
+     * Determine whether the leave request can be approved at Tier 2.
+     * Regular staff: HR approves final (pending_hr). HOD: Superior/GM approves final (pending_manager).
      */
     public function canBeApprovedTier2(): bool
     {
-        return $this->status === self::STATUS_PENDING_HR;
+        return $this->isHodApplicant()
+            ? $this->status === self::STATUS_PENDING_MANAGER
+            : $this->status === self::STATUS_PENDING_HR;
     }
 
     /**

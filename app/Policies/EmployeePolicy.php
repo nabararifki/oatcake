@@ -21,7 +21,7 @@ class EmployeePolicy
         }
 
         return $user->company_id !== null
-            && in_array($user->role, ['manager', 'admin', 'super_user'], true);
+            && in_array($user->role, ['manager', 'admin_hr', 'super_user'], true);
     }
 
     /**

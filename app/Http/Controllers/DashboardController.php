@@ -60,7 +60,7 @@ class DashboardController extends Controller
                     'department' => fn ($dq) => $dq->withoutGlobalScopes(),
                     'tags' => fn ($tq) => $tq->withoutGlobalScopes(),
                 ]),
-                'shift' => fn ($q) => $q->withoutGlobalScopes(),
+                'shift' => fn ($q) => $q->withoutGlobalScopes()->withTrashed(),
                 'dutyTag' => fn ($q) => $q->withoutGlobalScopes(),
             ])
             ->orderBy('id')
@@ -157,10 +157,12 @@ class DashboardController extends Controller
         $todaySessionsState = null;
         $annualLeaveBalance = 0;
         $dpBalance = 0;
+        $eoBalance = 0;
 
         if ($employee) {
             $annualLeaveBalance = (int) $this->leaveLedgerService->getBalance($employee, 'AL');
             $dpBalance = (int) $this->leaveLedgerService->getBalance($employee, 'DP');
+            $eoBalance = (int) $this->leaveLedgerService->getBalance($employee, 'EO');
         }
 
         if (! $isSuperAdmin && $employee) {
@@ -314,6 +316,7 @@ class DashboardController extends Controller
             'isClockInBlockedByUnscheduledPolicy',
             'annualLeaveBalance',
             'dpBalance',
+            'eoBalance',
             'isHoliday',
             'managerStats',
             'subordinates',

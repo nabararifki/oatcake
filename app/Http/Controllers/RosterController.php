@@ -54,7 +54,7 @@ class RosterController extends Controller
     {
         return $actor !== null
             && $actor->is_active
-            && in_array($actor->role, ['super_admin', 'super_user', 'admin', 'manager'], true);
+            && in_array($actor->role, ['super_admin', 'super_user', 'admin_hr', 'manager', 'admin_staff'], true);
     }
 
     /**
@@ -80,7 +80,7 @@ class RosterController extends Controller
             abort(403, 'Akses lintas perusahaan (cross-tenant) ditolak.');
         }
 
-        if ($actor->isManager()) {
+        if ($actor->isSupervisorOrManager()) {
             $managerDeptId = $actor->employee?->department_id;
             if ($managerDeptId === null || (int) $employee->department_id !== (int) $managerDeptId) {
                 abort(403, __('roster.view_only_mutation_forbidden'));
@@ -184,7 +184,7 @@ class RosterController extends Controller
             ->where('schedule_date', $prevDate)
             ->where('status', '!=', 'pending_delete')
             ->when($ignoreScheduleId !== null, fn ($q) => $q->where('id', '!=', $ignoreScheduleId))
-            ->with(['shift' => fn ($q) => $q->withoutGlobalScopes()])
+            ->with(['shift' => fn ($q) => $q->withoutGlobalScopes()->withTrashed()])
             ->get();
 
         foreach ($prevSchedules as $prevSchedule) {
@@ -208,7 +208,7 @@ class RosterController extends Controller
             ->where('schedule_date', $nextDate)
             ->where('status', '!=', 'pending_delete')
             ->when($ignoreScheduleId !== null, fn ($q) => $q->where('id', '!=', $ignoreScheduleId))
-            ->with(['shift' => fn ($q) => $q->withoutGlobalScopes()])
+            ->with(['shift' => fn ($q) => $q->withoutGlobalScopes()->withTrashed()])
             ->get();
 
         foreach ($nextSchedules as $nextSchedule) {
@@ -320,10 +320,11 @@ class RosterController extends Controller
         $employees = $employeesQuery->get();
 
         $allShifts = Shift::withoutGlobalScopes()
+            ->withTrashed()
             ->where('company_id', $company->id)
             ->orderBy('id')
             ->get();
-        $shifts = $allShifts->where('is_active', true)->values();
+        $shifts = $allShifts->where('is_active', true)->whereNull('deleted_at')->values();
         $shiftsById = $allShifts->keyBy('id');
 
         $companyTags = Tag::withoutGlobalScopes()
@@ -526,7 +527,7 @@ class RosterController extends Controller
         ])->values()->all();
 
         $canEdit = $this->canMutateRoster($actor);
-        if ($actor->isManager() && $selectedDepartmentId !== null && (int) $selectedDepartmentId !== (int) $actor->employee?->department_id) {
+        if ($actor->isSupervisorOrManager() && $selectedDepartmentId !== null && (int) $selectedDepartmentId !== (int) $actor->employee?->department_id) {
             $canEdit = false;
         }
         $rosterStatus = ($draftCount === 0 && $pendingDeleteCount === 0 && $publishedCount > 0) ? 'published' : 'draft';
@@ -576,7 +577,7 @@ class RosterController extends Controller
             'schedule_id' => ['nullable'],
             'employee_id' => ['required', 'integer', 'exists:employees,id'],
             'schedule_date' => ['required', 'date_format:Y-m-d'],
-            'shift_id' => ['nullable', 'integer', 'exists:shifts,id'],
+            'shift_id' => ['nullable', 'integer', Rule::exists('shifts', 'id')->whereNull('deleted_at')],
             'duty_tag_id' => ['nullable', 'integer', 'exists:tags,id'],
             'status' => ['nullable', 'string', 'in:draft,published,pending_delete,on_leave'],
             'notes' => ['nullable', 'string', 'max:500'],
@@ -589,7 +590,7 @@ class RosterController extends Controller
 
         $shift = null;
         if (! empty($validated['shift_id'])) {
-            $shift = Shift::withoutGlobalScopes()->findOrFail($validated['shift_id']);
+            $shift = Shift::withoutGlobalScopes()->whereNull('deleted_at')->findOrFail($validated['shift_id']);
             if ((int) $shift->company_id !== (int) $employee->company_id) {
                 abort(403, 'Shift tidak valid untuk tenant pegawai ini.');
             }
@@ -676,7 +677,7 @@ class RosterController extends Controller
         }
 
         $workSchedule->load([
-            'shift' => fn ($q) => $q->withoutGlobalScopes(),
+            'shift' => fn ($q) => $q->withoutGlobalScopes()->withTrashed(),
             'dutyTag' => fn ($q) => $q->withoutGlobalScopes(),
         ]);
 
@@ -736,7 +737,7 @@ class RosterController extends Controller
         $normalizedEnd = Carbon::parse($rawEnd, 'Asia/Jakarta')->format('H:i:s');
 
         $schedule->loadMissing([
-            'shift' => fn ($q) => $q->withoutGlobalScopes(),
+            'shift' => fn ($q) => $q->withoutGlobalScopes()->withTrashed(),
         ]);
 
         // Simpan snapshot jam terpublikasi sebelum di-resize agar saat "Batalkan Ubahan" diklik,
@@ -757,7 +758,7 @@ class RosterController extends Controller
         ]);
 
         $schedule->load([
-            'shift' => fn ($q) => $q->withoutGlobalScopes(),
+            'shift' => fn ($q) => $q->withoutGlobalScopes()->withTrashed(),
             'dutyTag' => fn ($q) => $q->withoutGlobalScopes(),
         ]);
 
@@ -782,7 +783,7 @@ class RosterController extends Controller
         $schedule = WorkSchedule::withoutGlobalScopes()
             ->where(is_numeric($workSchedule) ? 'id' : 'uuid', $workSchedule)
             ->with([
-                'shift' => fn ($q) => $q->withoutGlobalScopes(),
+                'shift' => fn ($q) => $q->withoutGlobalScopes()->withTrashed(),
                 'dutyTag' => fn ($q) => $q->withoutGlobalScopes(),
             ])
             ->firstOrFail();
@@ -852,11 +853,11 @@ class RosterController extends Controller
         });
 
         $schedule->load([
-            'shift' => fn ($q) => $q->withoutGlobalScopes(),
+            'shift' => fn ($q) => $q->withoutGlobalScopes()->withTrashed(),
             'dutyTag' => fn ($q) => $q->withoutGlobalScopes(),
         ]);
         $secondSchedule->load([
-            'shift' => fn ($q) => $q->withoutGlobalScopes(),
+            'shift' => fn ($q) => $q->withoutGlobalScopes()->withTrashed(),
             'dutyTag' => fn ($q) => $q->withoutGlobalScopes(),
         ]);
 
@@ -897,7 +898,7 @@ class RosterController extends Controller
         if ($schedule->status === 'published' || ! empty($schedule->published_start_time)) {
             $schedule->update(['status' => 'pending_delete']);
             $schedule->load([
-                'shift' => fn ($q) => $q->withoutGlobalScopes(),
+                'shift' => fn ($q) => $q->withoutGlobalScopes()->withTrashed(),
                 'dutyTag' => fn ($q) => $q->withoutGlobalScopes(),
             ]);
 
@@ -944,7 +945,7 @@ class RosterController extends Controller
 
         $schedule->update(['status' => 'published']);
         $schedule->load([
-            'shift' => fn ($q) => $q->withoutGlobalScopes(),
+            'shift' => fn ($q) => $q->withoutGlobalScopes()->withTrashed(),
             'dutyTag' => fn ($q) => $q->withoutGlobalScopes(),
         ]);
 
@@ -976,7 +977,7 @@ class RosterController extends Controller
         $startOfMonth = Carbon::createFromDate($year, $month, 1, 'Asia/Jakarta')->startOfMonth();
         $endOfMonth = $startOfMonth->copy()->endOfMonth();
 
-        if ($actor->isManager()) {
+        if ($actor->isSupervisorOrManager()) {
             $managerDeptId = $actor->employee?->department_id;
             if ($request->filled('department_id') && (int) $request->input('department_id') !== (int) $managerDeptId) {
                 abort(403, __('roster.view_only_mutation_forbidden'));
@@ -1112,7 +1113,7 @@ class RosterController extends Controller
         $startOfMonth = Carbon::createFromDate($year, $month, 1, 'Asia/Jakarta')->startOfMonth();
         $endOfMonth = $startOfMonth->copy()->endOfMonth();
 
-        if ($actor->isManager()) {
+        if ($actor->isSupervisorOrManager()) {
             $managerDeptId = $actor->employee?->department_id;
             if ($request->filled('department_id') && (int) $request->input('department_id') !== (int) $managerDeptId) {
                 abort(403, __('roster.view_only_mutation_forbidden'));
@@ -1167,7 +1168,7 @@ class RosterController extends Controller
         $startDate = $startOfMonth->toDateString();
         $endDate = $endOfMonth->toDateString();
 
-        if ($actor->isManager()) {
+        if ($actor->isSupervisorOrManager()) {
             $managerDeptId = $actor->employee?->department_id;
             if ($request->filled('department_id') && (int) $request->input('department_id') !== (int) $managerDeptId) {
                 abort(403, __('roster.view_only_mutation_forbidden'));
@@ -1239,138 +1240,6 @@ class RosterController extends Controller
             'deleted_drafts_count' => $deletedDraftsCount,
             'restored_count' => $restoredCount,
             'status' => 'published',
-        ]);
-    }
-
-    /**
-     * Create a new master shift scoped to the active tenant company.
-     */
-    public function storeShift(Request $request): JsonResponse
-    {
-        $actor = $request->user();
-        if (! $this->canMutateRoster($actor)) {
-            abort(403, 'Anda tidak memiliki izin untuk menambahkan master shift.');
-        }
-
-        $company = $this->resolveCompany($actor);
-        if (! $company) {
-            abort(404, 'Tenant perusahaan belum tersedia.');
-        }
-
-        $validated = $request->validate([
-            'code' => [
-                'required',
-                'string',
-                'max:20',
-                Rule::unique('shifts', 'code')->where(fn ($q) => $q->where('company_id', $company->id)),
-            ],
-            'name' => ['required', 'string', 'max:100'],
-            'start_time' => ['required', 'string', 'regex:/^\d{2}:\d{2}(:\d{2})?$/'],
-            'end_time' => ['required', 'string', 'regex:/^\d{2}:\d{2}(:\d{2})?$/'],
-            'grace_period_minutes' => ['nullable', 'integer', 'min:0', 'max:120'],
-            'color_badge' => ['required', 'string', 'regex:/^#[0-9A-Fa-f]{6}$/'],
-        ]);
-
-        $shiftModel = Shift::withoutGlobalScopes()->create([
-            'company_id' => $company->id,
-            'code' => strtoupper(trim($validated['code'])),
-            'name' => $validated['name'],
-            'start_time' => $validated['start_time'],
-            'end_time' => $validated['end_time'],
-            'grace_period_minutes' => array_key_exists('grace_period_minutes', $validated) && $validated['grace_period_minutes'] !== null
-                ? (int) $validated['grace_period_minutes']
-                : 15,
-            'color_badge' => $validated['color_badge'],
-            'is_active' => true,
-        ]);
-
-        return response()->json([
-            'message' => __('roster.shift_created_successfully'),
-            'shift' => [
-                'id' => $shiftModel->id,
-                'uuid' => $shiftModel->uuid,
-                'code' => $shiftModel->code,
-                'name' => $shiftModel->name,
-                'start_time' => Carbon::parse($shiftModel->start_time, 'Asia/Jakarta')->format('H:i:s'),
-                'end_time' => Carbon::parse($shiftModel->end_time, 'Asia/Jakarta')->format('H:i:s'),
-                'cross_day' => (bool) $shiftModel->cross_day,
-                'grace_period_minutes' => (int) $shiftModel->grace_period_minutes,
-                'duration_hours' => $shiftModel->getDurationInHours(),
-                'color_badge' => $shiftModel->color_badge,
-            ],
-        ], 201);
-    }
-
-    /**
-     * Update master shift configuration (hours, name, grace period, color badge).
-     * Previously assigned work_schedules remain immutable via their snapshotted custom_start_time / custom_end_time.
-     */
-    public function updateShift(Request $request, string $shift): JsonResponse
-    {
-        $actor = $request->user();
-        if (! $this->canMutateRoster($actor)) {
-            abort(403, 'Anda tidak memiliki izin untuk mengubah pengaturan master shift.');
-        }
-
-        $shiftModel = Shift::withoutGlobalScopes()
-            ->where(is_numeric($shift) ? 'id' : 'uuid', $shift)
-            ->firstOrFail();
-
-        if ($actor->isSuperAdmin()) {
-            if (session()->has('active_company_id') && session('active_company_id') !== null) {
-                if ((int) $shiftModel->company_id !== (int) session('active_company_id')) {
-                    abort(403, 'Master shift berada di luar konteks tenant aktif.');
-                }
-            }
-        } elseif ($actor->company_id === null || (int) $shiftModel->company_id !== (int) $actor->company_id) {
-            abort(403, 'Akses lintas perusahaan (cross-tenant) pada master shift ditolak.');
-        }
-
-        if ($request->has('notes')) {
-            $this->rejectReservedLeaveNotes(
-                is_string($request->input('notes')) ? $request->input('notes') : null,
-                'notes'
-            );
-        }
-
-        $validated = $request->validate([
-            'name' => ['sometimes', 'required', 'string', 'max:100'],
-            'start_time' => ['required', 'string', 'regex:/^\d{2}:\d{2}(:\d{2})?$/'],
-            'end_time' => ['required', 'string', 'regex:/^\d{2}:\d{2}(:\d{2})?$/'],
-            'grace_period_minutes' => ['nullable', 'integer', 'min:0', 'max:120'],
-            'color_badge' => ['nullable', 'string', 'max:25'],
-        ]);
-
-        if (isset($validated['name'])) {
-            $this->rejectReservedLeaveNotes($validated['name'], 'name');
-        }
-
-        $shiftModel->fill([
-            'name' => $validated['name'] ?? $shiftModel->name,
-            'start_time' => $validated['start_time'],
-            'end_time' => $validated['end_time'],
-            'grace_period_minutes' => array_key_exists('grace_period_minutes', $validated) && $validated['grace_period_minutes'] !== null
-                ? (int) $validated['grace_period_minutes']
-                : $shiftModel->grace_period_minutes,
-            'color_badge' => $validated['color_badge'] ?? $shiftModel->color_badge,
-        ]);
-
-        $shiftModel->save();
-
-        return response()->json([
-            'message' => __('roster.shift_updated_successfully'),
-            'shift' => [
-                'id' => $shiftModel->id,
-                'uuid' => $shiftModel->uuid,
-                'code' => $shiftModel->code,
-                'name' => $shiftModel->name,
-                'start_time' => Carbon::parse($shiftModel->start_time, 'Asia/Jakarta')->format('H:i:s'),
-                'end_time' => Carbon::parse($shiftModel->end_time, 'Asia/Jakarta')->format('H:i:s'),
-                'cross_day' => (bool) $shiftModel->cross_day,
-                'grace_period_minutes' => (int) $shiftModel->grace_period_minutes,
-                'duration_hours' => $shiftModel->getDurationInHours(),
-                'color_badge' => $shiftModel->color_badge,
-            ],
         ]);
     }
 }

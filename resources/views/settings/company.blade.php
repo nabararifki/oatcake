@@ -37,10 +37,11 @@
              activeCategory: 'all',
              searchQuery: '',
              sectionKeywords: {
-                 profile: @js(strtolower(__('company.section_profile') . ' ' . __('company.section_profile_desc') . ' ' . __('company.name') . ' ' . __('company.code') . ' ' . __('company.address') . ' ' . __('company.timezone') . ' profil properti tenant kode alamat zona waktu')),
+                 profile: @js(strtolower(__('company.section_profile') . ' ' . __('company.section_profile_desc') . ' ' . __('company.name') . ' ' . __('company.code') . ' ' . __('company.address') . ' ' . __('company.timezone') . ' ' . __('company.auto_logout_minutes_label') . ' profil properti tenant kode alamat zona waktu auto logout idle timeout sesi')),
                  attendance: @js(strtolower(__('company.section_geofence') . ' ' . __('company.section_geofence_desc') . ' ' . __('company.geofence_preview_title') . ' ' . __('company.auto_assign_shift_label') . ' ' . __('company.auto_assign_shift_desc') . ' ' . __('company.latitude') . ' ' . __('company.longitude') . ' ' . __('company.geofence_radius') . ' presensi geofence gps radar auto-schedule shift clock-in')),
                  storage: @js(strtolower(__('company.storage_usage_heading') . ' ' . __('company.storage_usage_desc') . ' ' . __('company.photo_retention_label') . ' ' . __('company.storage_limit_label') . ' penyimpanan retensi foto storage quota')),
                  holidays: @js(strtolower(__('company.holiday_section_title') . ' ' . __('company.holiday_section_desc') . ' hari libur nasional event dp calendar holiday')),
+                 tags: @js(strtolower(__('company.tag_section_title') . ' ' . __('company.tag_section_desc') . ' ' . __('company.cat_tags') . ' tag karyawan employee tags daily worker casual badge')),
                  backup: @js(strtolower(__('company.backup_section_title') . ' ' . __('company.backup_section_desc') . ' ' . __('company.cat_backup') . ' backup restore jsonl zip portabilitas portability export import'))
              },
              matchesSection(cat) {
@@ -58,8 +59,8 @@
              },
              get visibleSectionCount() {
                  const cats = this.canManageBackups
-                     ? ['profile', 'attendance', 'storage', 'holidays', 'backup']
-                     : ['profile', 'attendance', 'storage', 'holidays'];
+                     ? ['profile', 'attendance', 'storage', 'holidays', 'tags', 'backup']
+                     : ['profile', 'attendance', 'storage', 'holidays', 'tags'];
                  return cats.filter((c) => this.matchesSection(c)).length;
              },
              resetFilters() {
@@ -142,7 +143,7 @@
                     </div>
 
                     <div class="text-2xs font-mono font-semibold text-ink-muted shrink-0 px-3 py-1.5 rounded-xl bg-surface-muted border border-line text-center">
-                        <span x-text="visibleSectionCount">{{ $canManageBackups ? 5 : 4 }}</span> / {{ $canManageBackups ? 5 : 4 }}
+                        <span x-text="visibleSectionCount">{{ $canManageBackups ? 6 : 5 }}</span> / {{ $canManageBackups ? 6 : 5 }}
                     </div>
                 </div>
 
@@ -176,6 +177,12 @@
                             :class="activeCategory === 'holidays' ? 'bg-accent text-accent-fg border-accent shadow-xs' : 'bg-surface-muted text-ink hover:bg-surface border-line'"
                             class="px-3.5 py-1.5 rounded-xl border text-xs font-semibold transition-colors cursor-pointer">
                         {{ __('company.cat_holidays') }}
+                    </button>
+                    <button type="button"
+                            @click="activeCategory = 'tags'"
+                            :class="activeCategory === 'tags' ? 'bg-accent text-accent-fg border-accent shadow-xs' : 'bg-surface-muted text-ink hover:bg-surface border-line'"
+                            class="px-3.5 py-1.5 rounded-xl border text-xs font-semibold transition-colors cursor-pointer">
+                        {{ __('company.cat_tags') }}
                     </button>
                     @if(in_array(auth()->user()->role, ['super_user', 'super_admin']))
                         <button type="button"
@@ -282,6 +289,29 @@
                                     <option value="Asia/Makassar" @selected($selectedTz === 'Asia/Makassar')>{{ __('company.tz_wita') }}</option>
                                     <option value="Asia/Jayapura" @selected($selectedTz === 'Asia/Jayapura')>{{ __('company.tz_wit') }}</option>
                                 </select>
+                            </div>
+                        </div>
+
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2 border-t border-line">
+                            <div>
+                                <label for="company-auto-logout-minutes" class="block text-xs font-semibold text-ink mb-1">
+                                    {{ __('company.auto_logout_minutes_label') }} <span class="text-red-500">*</span>
+                                </label>
+                                <div class="flex items-center gap-2">
+                                    <input id="company-auto-logout-minutes"
+                                           type="number"
+                                           name="auto_logout_minutes"
+                                           min="5"
+                                           max="1440"
+                                           step="1"
+                                           value="{{ old('auto_logout_minutes', $company->auto_logout_minutes ?? 30) }}"
+                                           required
+                                           class="w-36 rounded-2xl border border-line bg-surface px-3.5 py-2 text-sm font-mono text-ink focus:outline-none focus:ring-2 focus:ring-accent" />
+                                    <span class="inline-flex items-center px-3 py-2 rounded-2xl border border-line bg-surface-muted text-xs font-semibold text-ink-muted">
+                                        {{ __('company.auto_logout_unit_minutes') }}
+                                    </span>
+                                </div>
+                                <p class="text-2xs text-ink-muted mt-1">{{ __('company.auto_logout_minutes_hint') }}</p>
                             </div>
                         </div>
                     </div>
@@ -824,6 +854,282 @@
                                 <button type="submit"
                                         class="px-4 py-2 rounded-2xl bg-red-600 hover:bg-red-700 text-white text-xs font-semibold shadow-sm transition-colors cursor-pointer">
                                     {{ __('company.holiday_btn_delete') }}
+                                </button>
+                            </div>
+                        </form>
+                    </x-ui.modal>
+                @endif
+            </div>
+
+            <!-- Manajemen Tag Karyawan (Daily Worker, Casual, MOD, dll.) -->
+            @php
+                $canManageTags = auth()->check() && auth()->user()->isAdminOrAbove();
+                $companyTags = $tags ?? \App\Models\Tag::withoutGlobalScopes()
+                    ->where('company_id', $company->id)
+                    ->withCount('employees')
+                    ->orderBy('name')
+                    ->get();
+            @endphp
+            <div x-show="matchesSection('tags')"
+                 x-data="{
+                    createTagColor: '#0EA5E9',
+                    editTagId: null,
+                    editTagCode: '',
+                    editTagName: '',
+                    editTagColor: '#6B7280',
+                    deleteTagId: null,
+                    deleteTagName: '',
+                    openEditTag(id, code, name, color) {
+                        this.editTagId = id;
+                        this.editTagCode = code;
+                        this.editTagName = name;
+                        this.editTagColor = color || '#6B7280';
+                        this.$dispatch('open-modal', 'edit-tag-modal');
+                    },
+                    openDeleteTag(id, name) {
+                        this.deleteTagId = id;
+                        this.deleteTagName = name;
+                        this.$dispatch('open-modal', 'delete-tag-modal');
+                    }
+                 }"
+                 class="bg-surface border border-line rounded-2xl p-6 shadow-sm space-y-4">
+                <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border-b border-line pb-4">
+                    <div class="flex items-start gap-3">
+                        <div class="w-10 h-10 rounded-xl bg-sky-500/10 border border-sky-500/20 text-sky-600 dark:text-sky-400 flex items-center justify-center shrink-0">
+                            <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                <path d="M9.568 3H5.25A2.25 2.25 0 0 0 3 5.25v4.318c0 .597.237 1.17.659 1.591l9.581 9.581c.699.699 1.78.872 2.607.33a18.095 18.095 0 0 0 5.223-5.223c.542-.827.369-1.908-.33-2.607L11.16 3.66A2.25 2.25 0 0 0 9.568 3Z" />
+                                <path d="M6 6h.008v.008H6V6Z" />
+                            </svg>
+                        </div>
+                        <div>
+                            <h3 class="text-sm font-bold text-ink">{{ __('company.tag_section_title') }}</h3>
+                            <p class="text-xs text-ink-muted mt-0.5">{{ __('company.tag_section_desc') }}</p>
+                        </div>
+                    </div>
+
+                    @if ($canManageTags)
+                        <button type="button"
+                                @click="$dispatch('open-modal', 'create-tag-modal')"
+                                class="inline-flex items-center gap-2 px-4 py-2 rounded-2xl bg-accent text-accent-fg text-xs font-semibold shadow-sm hover:opacity-95 transition-all cursor-pointer shrink-0">
+                            <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                <line x1="12" y1="5" x2="12" y2="19"></line>
+                                <line x1="5" y1="12" x2="19" y2="12"></line>
+                            </svg>
+                            <span>{{ __('company.tag_btn_add') }}</span>
+                        </button>
+                    @endif
+                </div>
+
+                @if ($companyTags->isEmpty())
+                    <div class="rounded-2xl border border-dashed border-line bg-surface-muted/40 p-8 text-center">
+                        <p class="text-xs text-ink-muted">{{ __('company.tag_empty') }}</p>
+                    </div>
+                @else
+                    <x-ui.table :striped="true" class="rounded-2xl border border-line bg-surface shadow-2xs overflow-hidden">
+                        <x-slot name="header">
+                            <tr class="bg-surface-muted border-b border-line">
+                                <th class="py-2.5 px-4 text-left text-2xs font-semibold uppercase tracking-wider text-ink-muted">{{ __('company.tag_col_badge') }}</th>
+                                <th class="py-2.5 px-4 text-left text-2xs font-semibold uppercase tracking-wider text-ink-muted">{{ __('company.tag_col_name') }}</th>
+                                <th class="py-2.5 px-4 text-left text-2xs font-semibold uppercase tracking-wider text-ink-muted">{{ __('company.tag_col_staff_count') }}</th>
+                                @if ($canManageTags)
+                                    <th class="py-2.5 px-4 text-right text-2xs font-semibold uppercase tracking-wider text-ink-muted">{{ __('company.tag_col_actions') }}</th>
+                                @endif
+                            </tr>
+                        </x-slot>
+                        @foreach ($companyTags as $tagItem)
+                            <tr class="hover:bg-surface-muted/50 transition-colors">
+                                <td class="py-2.5 px-4 whitespace-nowrap">
+                                    <span class="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-2xs font-semibold text-white shadow-2xs"
+                                          style="background-color: {{ $tagItem->badge_color }};">
+                                        {{ $tagItem->code }}
+                                    </span>
+                                </td>
+                                <td class="py-2.5 px-4 text-xs font-medium text-ink">
+                                    {{ $tagItem->name }}
+                                </td>
+                                <td class="py-2.5 px-4 text-xs font-mono text-ink-muted whitespace-nowrap">
+                                    {{ $tagItem->employees_count ?? 0 }}
+                                </td>
+                                @if ($canManageTags)
+                                    <td class="py-2.5 px-4 text-right whitespace-nowrap">
+                                        <div class="inline-flex items-center justify-end gap-1.5">
+                                            <button type="button"
+                                                    @click="openEditTag({{ $tagItem->id }}, @js($tagItem->code), @js($tagItem->name), @js($tagItem->badge_color))"
+                                                    class="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl border border-line bg-surface hover:bg-surface-muted text-xs font-medium text-ink transition-colors cursor-pointer"
+                                                    title="{{ __('company.tag_modal_edit_title') }}">
+                                                <svg class="w-3.5 h-3.5 text-ink-muted" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                                    <path d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931z"></path>
+                                                    <path d="M19.5 7.125L16.862 4.487"></path>
+                                                </svg>
+                                                <span>{{ __('common.edit') }}</span>
+                                            </button>
+                                            <button type="button"
+                                                    @click="openDeleteTag({{ $tagItem->id }}, @js($tagItem->name))"
+                                                    class="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl border border-red-500/25 bg-red-500/10 hover:bg-red-500/20 text-xs font-medium text-red-600 dark:text-red-400 transition-colors cursor-pointer"
+                                                    title="{{ __('company.tag_modal_delete_title') }}">
+                                                <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                                    <path d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0"></path>
+                                                </svg>
+                                                <span>{{ __('common.delete') }}</span>
+                                            </button>
+                                        </div>
+                                    </td>
+                                @endif
+                            </tr>
+                        @endforeach
+                    </x-ui.table>
+                @endif
+
+                @if ($canManageTags)
+                    <!-- Modal Tambah Tag Karyawan -->
+                    <x-ui.modal name="create-tag-modal" :title="__('company.tag_modal_add_title')" maxWidth="md">
+                        <form method="POST" action="{{ route('settings.tags.store') }}" class="space-y-4">
+                            @csrf
+                            <div>
+                                <label for="create-tag-name" class="block text-xs font-semibold text-ink mb-1">
+                                    {{ __('company.tag_label_name') }} <span class="text-red-500">*</span>
+                                </label>
+                                <input id="create-tag-name"
+                                       type="text"
+                                       name="name"
+                                       required
+                                       maxlength="100"
+                                       placeholder="{{ __('company.tag_placeholder_name') }}"
+                                       class="w-full rounded-2xl border border-line bg-surface px-3.5 py-2 text-sm text-ink focus:outline-none focus:ring-2 focus:ring-accent" />
+                            </div>
+
+                            <div>
+                                <label for="create-tag-code" class="block text-xs font-semibold text-ink mb-1">
+                                    {{ __('company.tag_label_code') }}
+                                </label>
+                                <input id="create-tag-code"
+                                       type="text"
+                                       name="code"
+                                       maxlength="50"
+                                       placeholder="{{ __('company.tag_placeholder_code') }}"
+                                       class="w-full rounded-2xl border border-line bg-surface px-3.5 py-2 text-sm font-mono uppercase text-ink focus:outline-none focus:ring-2 focus:ring-accent" />
+                                <p class="text-2xs text-ink-muted mt-1">{{ __('company.tag_hint_code') }}</p>
+                            </div>
+
+                            <div>
+                                <label for="create-tag-color" class="block text-xs font-semibold text-ink mb-1">
+                                    {{ __('company.tag_label_color') }}
+                                </label>
+                                <div class="flex items-center gap-3">
+                                    <input id="create-tag-color"
+                                           type="color"
+                                           x-model="createTagColor"
+                                           class="h-10 w-14 rounded-xl border border-line bg-surface p-1 cursor-pointer" />
+                                    <input type="text"
+                                           name="badge_color"
+                                           x-model="createTagColor"
+                                           maxlength="20"
+                                           pattern="^#[0-9A-Fa-f]{6}$"
+                                           class="flex-1 rounded-2xl border border-line bg-surface px-3.5 py-2 text-sm font-mono text-ink focus:outline-none focus:ring-2 focus:ring-accent" />
+                                </div>
+                            </div>
+
+                            <div class="flex items-center justify-end gap-2 pt-3 border-t border-line">
+                                <button type="button"
+                                        @click="$dispatch('close-modal', 'create-tag-modal')"
+                                        class="px-4 py-2 rounded-2xl border border-line bg-surface hover:bg-surface-muted text-ink text-xs font-medium transition-colors cursor-pointer">
+                                    {{ __('common.cancel') }}
+                                </button>
+                                <button type="submit"
+                                        class="px-4 py-2 rounded-2xl bg-accent text-accent-fg text-xs font-semibold shadow-sm hover:opacity-95 transition-all cursor-pointer">
+                                    {{ __('company.tag_btn_save') }}
+                                </button>
+                            </div>
+                        </form>
+                    </x-ui.modal>
+
+                    <!-- Modal Edit Tag Karyawan -->
+                    <x-ui.modal name="edit-tag-modal" :title="__('company.tag_modal_edit_title')" maxWidth="md">
+                        <form method="POST"
+                              :action="`{{ url('/settings/tags') }}/${editTagId}`"
+                              class="space-y-4">
+                            @csrf
+                            @method('PUT')
+                            <div>
+                                <label for="edit-tag-name" class="block text-xs font-semibold text-ink mb-1">
+                                    {{ __('company.tag_label_name') }} <span class="text-red-500">*</span>
+                                </label>
+                                <input id="edit-tag-name"
+                                       type="text"
+                                       name="name"
+                                       x-model="editTagName"
+                                       required
+                                       maxlength="100"
+                                       class="w-full rounded-2xl border border-line bg-surface px-3.5 py-2 text-sm text-ink focus:outline-none focus:ring-2 focus:ring-accent" />
+                            </div>
+
+                            <div>
+                                <label for="edit-tag-code" class="block text-xs font-semibold text-ink mb-1">
+                                    {{ __('company.tag_label_code') }}
+                                </label>
+                                <input id="edit-tag-code"
+                                       type="text"
+                                       name="code"
+                                       x-model="editTagCode"
+                                       maxlength="50"
+                                       class="w-full rounded-2xl border border-line bg-surface px-3.5 py-2 text-sm font-mono uppercase text-ink focus:outline-none focus:ring-2 focus:ring-accent" />
+                            </div>
+
+                            <div>
+                                <label for="edit-tag-color" class="block text-xs font-semibold text-ink mb-1">
+                                    {{ __('company.tag_label_color') }}
+                                </label>
+                                <div class="flex items-center gap-3">
+                                    <input id="edit-tag-color"
+                                           type="color"
+                                           x-model="editTagColor"
+                                           class="h-10 w-14 rounded-xl border border-line bg-surface p-1 cursor-pointer" />
+                                    <input type="text"
+                                           name="badge_color"
+                                           x-model="editTagColor"
+                                           maxlength="20"
+                                           pattern="^#[0-9A-Fa-f]{6}$"
+                                           class="flex-1 rounded-2xl border border-line bg-surface px-3.5 py-2 text-sm font-mono text-ink focus:outline-none focus:ring-2 focus:ring-accent" />
+                                </div>
+                            </div>
+
+                            <div class="flex items-center justify-end gap-2 pt-3 border-t border-line">
+                                <button type="button"
+                                        @click="$dispatch('close-modal', 'edit-tag-modal')"
+                                        class="px-4 py-2 rounded-2xl border border-line bg-surface hover:bg-surface-muted text-ink text-xs font-medium transition-colors cursor-pointer">
+                                    {{ __('common.cancel') }}
+                                </button>
+                                <button type="submit"
+                                        class="px-4 py-2 rounded-2xl bg-accent text-accent-fg text-xs font-semibold shadow-sm hover:opacity-95 transition-all cursor-pointer">
+                                    {{ __('company.tag_btn_update') }}
+                                </button>
+                            </div>
+                        </form>
+                    </x-ui.modal>
+
+                    <!-- Modal Hapus Tag Karyawan -->
+                    <x-ui.modal name="delete-tag-modal" :title="__('company.tag_modal_delete_title')" maxWidth="sm">
+                        <form method="POST"
+                              :action="`{{ url('/settings/tags') }}/${deleteTagId}`"
+                              class="space-y-4">
+                            @csrf
+                            @method('DELETE')
+                            <p class="text-xs text-ink-muted leading-relaxed">
+                                {{ __('company.tag_modal_delete_desc') }}
+                            </p>
+                            <div class="rounded-2xl border border-line bg-surface-muted/50 px-3.5 py-2.5 text-xs">
+                                <div class="font-semibold text-ink" x-text="deleteTagName"></div>
+                            </div>
+
+                            <div class="flex items-center justify-end gap-2 pt-3 border-t border-line">
+                                <button type="button"
+                                        @click="$dispatch('close-modal', 'delete-tag-modal')"
+                                        class="px-4 py-2 rounded-2xl border border-line bg-surface hover:bg-surface-muted text-ink text-xs font-medium transition-colors cursor-pointer">
+                                    {{ __('common.cancel') }}
+                                </button>
+                                <button type="submit"
+                                        class="px-4 py-2 rounded-2xl bg-red-600 hover:bg-red-700 text-white text-xs font-semibold shadow-sm transition-colors cursor-pointer">
+                                    {{ __('company.tag_btn_delete') }}
                                 </button>
                             </div>
                         </form>

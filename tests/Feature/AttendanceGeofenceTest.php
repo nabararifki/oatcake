@@ -462,7 +462,7 @@ class AttendanceGeofenceTest extends TestCase
             'name' => 'Diana HR Admin',
             'username' => 'diana.hr.log',
             'email' => 'diana.hr.log@novotelyia.com',
-            'role' => 'admin',
+            'role' => 'admin_hr',
             'is_active' => true,
         ]);
 
@@ -579,7 +579,7 @@ class AttendanceGeofenceTest extends TestCase
 
         $admin = User::factory()->create([
             'company_id' => $this->company->id,
-            'role' => 'admin',
+            'role' => 'admin_hr',
             'is_active' => true,
         ]);
 

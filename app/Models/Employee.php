@@ -136,6 +136,36 @@ class Employee extends Model
     }
 
     /**
+     * Determine whether this employee holds a tag matching the given code or name (case-insensitive).
+     */
+    public function hasTag(string $code): bool
+    {
+        $needle = strtoupper(trim($code));
+        if ($needle === '') {
+            return false;
+        }
+
+        if ($needle === 'HOD' && array_key_exists('has_hod_tag', $this->attributes)) {
+            return (bool) $this->attributes['has_hod_tag'];
+        }
+
+        if ($this->relationLoaded('tags')) {
+            return $this->tags->contains(function (Tag $tag) use ($needle): bool {
+                return strtoupper(trim((string) $tag->code)) === $needle
+                    || strtoupper(trim((string) $tag->name)) === $needle;
+            });
+        }
+
+        return $this->tags()
+            ->withoutGlobalScopes()
+            ->where(function (Builder $query) use ($needle): void {
+                $query->whereRaw('UPPER(code) = ?', [$needle])
+                    ->orWhereRaw('UPPER(name) = ?', [$needle]);
+            })
+            ->exists();
+    }
+
+    /**
      * Get the work schedules assigned to the employee.
      */
     public function workSchedules(): HasMany

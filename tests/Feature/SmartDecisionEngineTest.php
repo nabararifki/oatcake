@@ -145,7 +145,7 @@ class SmartDecisionEngineTest extends TestCase
             'name' => 'Dewi Sartika',
             'username' => 'dewi.hr',
             'email' => 'dewi.hr@novotelyia.com',
-            'role' => 'admin',
+            'role' => 'admin_hr',
             'is_active' => true,
         ]);
 
@@ -768,7 +768,7 @@ class SmartDecisionEngineTest extends TestCase
             'name' => 'Admin Ibis',
             'username' => 'admin.ibis',
             'email' => 'admin@ibisyia.com',
-            'role' => 'admin',
+            'role' => 'admin_hr',
             'is_active' => true,
         ]);
 
@@ -778,9 +778,10 @@ class SmartDecisionEngineTest extends TestCase
     }
 
     /**
-     * Skenario 8: Mode Debug SPK SMART & Simulator What-If (Eksklusif Super Admin).
-     * - Hanya super_admin yang dapat mengakses endpoint POST /leave/smart-debug dan melihat panel Mode Debug di /leave.
-     * - Role super_user, admin, manager, dan user wajib menerima HTTP 403 Forbidden.
+     * Skenario 8: Mode Debug SPK SMART & Simulator What-If (Super Admin & Super User).
+     * - Hanya super_admin dan super_user yang dapat mengakses endpoint POST /leave/smart-debug dan melihat panel Mode Debug di /leave.
+     * - Role admin_hr, manager, dan user wajib menerima HTTP 403 Forbidden.
+     * - Super User dibatasi isolasi tenant (HTTP 403 jika mencoba inspeksi telemetri perusahaan lain).
      * - Simulator Mode A (multi-kandidat), Mode B (mandiri), dan inspeksi telemetri database bekerja akurat tanpa mengubah data produksi.
      */
     public function test_scenario_8_super_admin_exclusive_smart_debug_simulator_and_telemetry_inspection(): void
@@ -829,26 +830,100 @@ class SmartDecisionEngineTest extends TestCase
             ],
         ];
 
-        // 1. Non-super_admin (super_user, admin, manager, user) wajib ditolak 403 Forbidden
-        foreach ([$superUser, $this->adminUser, $this->managerUser, $this->staffUserA] as $nonSuperAdmin) {
-            $this->actingAs($nonSuperAdmin)
+        // 1. Non-debug roles (admin_hr, manager, user) wajib ditolak 403 Forbidden
+        foreach ([$this->adminUser, $this->managerUser, $this->staffUserA] as $nonDebugRole) {
+            $this->actingAs($nonDebugRole)
                 ->postJson(route('leave.smartDebug'), $payloadModeA)
                 ->assertForbidden();
 
-            $this->actingAs($nonSuperAdmin)
+            $this->actingAs($nonDebugRole)
                 ->get(route('leave.index'))
                 ->assertOk()
                 ->assertDontSee('smart-debug-modal', false)
                 ->assertDontSee(__('leave.btn_smart_debug'));
         }
 
-        // 2. Super Admin melihat tombol & modal Mode Debug di GET /leave
+        // 2. Super Admin & Super User melihat tombol & modal Mode Debug di GET /leave
         $this->actingAs($superAdmin)
             ->withSession(['active_company_id' => $this->company->id])
             ->get(route('leave.index'))
             ->assertOk()
             ->assertSee('smart-debug-modal', false)
             ->assertSee(__('leave.btn_smart_debug'));
+
+        $this->actingAs($superUser)
+            ->get(route('leave.index'))
+            ->assertOk()
+            ->assertSee('smart-debug-modal', false)
+            ->assertSee(__('leave.btn_smart_debug'));
+
+        // 2b. Super User menjalankan simulasi Mode A & Mode B untuk tenant sendiri -> HTTP 200 OK
+        $this->actingAs($superUser)
+            ->postJson(route('leave.smartDebug'), $payloadModeA)
+            ->assertOk()
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('mode', 'A');
+
+        $this->actingAs($superUser)
+            ->postJson(route('leave.smartDebug'), [
+                'weights' => ['C1' => 30, 'C2' => 20, 'C3' => 15, 'C4' => 15, 'C5' => 20],
+                'leave_request_id' => $leaveRequest->id,
+                'candidates' => [],
+            ])
+            ->assertOk()
+            ->assertJsonPath('mode', 'B');
+
+        // 2c. Isolasi tenant: Super User tidak boleh menginspeksi leave_request/employee milik tenant lain -> 403
+        $otherCompany = Company::create([
+            'code' => 'OTHER-DEBUG-HTL',
+            'name' => 'Other Debug Hotel',
+            'latitude' => -6.2,
+            'longitude' => 106.8,
+        ]);
+        $otherDept = Department::withoutGlobalScopes()->create([
+            'company_id' => $otherCompany->id,
+            'code' => 'FO',
+            'name' => 'Front Office',
+        ]);
+        $otherUser = User::factory()->create([
+            'company_id' => $otherCompany->id,
+            'role' => 'user',
+            'is_active' => true,
+        ]);
+        $otherEmployee = Employee::withoutGlobalScopes()->create([
+            'company_id' => $otherCompany->id,
+            'user_id' => $otherUser->id,
+            'department_id' => $otherDept->id,
+            'position' => 'Staff',
+            'join_date' => '2025-01-01',
+            'status' => 'active',
+        ]);
+        $otherLeaveRequest = LeaveRequest::withoutGlobalScopes()->create([
+            'company_id' => $otherCompany->id,
+            'employee_id' => $otherEmployee->id,
+            'leave_type_id' => $alType->id,
+            'start_date' => '2026-12-22',
+            'end_date' => '2026-12-22',
+            'total_days' => 1,
+            'reason' => 'Cross tenant test',
+            'status' => LeaveRequest::STATUS_PENDING_MANAGER,
+        ]);
+
+        $this->actingAs($superUser)
+            ->postJson(route('leave.smartDebug'), [
+                'weights' => ['C1' => 30, 'C2' => 20, 'C3' => 15, 'C4' => 15, 'C5' => 20],
+                'leave_request_id' => $otherLeaveRequest->id,
+                'candidates' => [],
+            ])
+            ->assertForbidden();
+
+        $this->actingAs($superUser)
+            ->postJson(route('leave.smartDebug'), [
+                'weights' => ['C1' => 30, 'C2' => 20, 'C3' => 15, 'C4' => 15, 'C5' => 20],
+                'employee_id' => $otherEmployee->id,
+                'candidates' => [],
+            ])
+            ->assertForbidden();
 
         // 3. Super Admin menjalankan simulasi Mode A + inspeksi telemetri DB -> HTTP 200 OK
         $modeAResponse = $this->actingAs($superAdmin)
@@ -987,9 +1062,16 @@ class SmartDecisionEngineTest extends TestCase
             app()->setLocale($prevLocale);
         }
 
-        // 3. Isolasi ketat: non-super_admin tidak boleh melihat modal/slider/lock debug
-        foreach ([$superUser, $this->adminUser, $this->managerUser, $this->staffUserA] as $nonSuperAdmin) {
-            $this->actingAs($nonSuperAdmin)
+        // 3. Super User juga melihat modal & slider debug, sedangkan admin_hr, manager, user tetap terisolasi
+        $this->actingAs($superUser)
+            ->get(route('leave.index'))
+            ->assertOk()
+            ->assertSee('smart-debug-modal', false)
+            ->assertSee('debug_weight_slider_C1', false)
+            ->assertSee('debug_weight_lock_C1', false);
+
+        foreach ([$this->adminUser, $this->managerUser, $this->staffUserA] as $nonDebugRole) {
+            $this->actingAs($nonDebugRole)
                 ->get(route('leave.index'))
                 ->assertOk()
                 ->assertDontSee('smart-debug-modal', false)
@@ -1060,5 +1142,110 @@ class SmartDecisionEngineTest extends TestCase
 
         $normSumLocked = array_sum($lockedResp->json('weights.normalized'));
         $this->assertSame(1.0, round($normSumLocked, 4));
+    }
+
+    /**
+     * Skenario 10: Single Source of Truth (SSOT) SPK SMART across Index Table, Analysis Modal, Debug Simulator, and Batch Recalculation.
+     * - When live telemetry changes (e.g., new late attendance records or overlapping approved leave),
+     *   calculateCandidateRealtimeMetrics(), GET /leave, GET /leave/{req}/smart-analysis, and POST /leave/smart-debug (Mode B)
+     *   all return the exact same live smart_score and synchronize the DB column.
+     */
+    public function test_scenario_10_ssot_realtime_smart_score_matches_across_index_modal_debug_and_recalculation(): void
+    {
+        Carbon::setTestNow(Carbon::create(2026, 6, 1, 9, 0, 0, 'Asia/Jakarta'));
+
+        $alType = LeaveType::findByCode('AL', $this->company->id);
+        $this->ledgerService->recordAccrual($this->staffEmployeeA, 'AL', 12.00, [
+            'accrual_year' => 2026,
+            'expires_at' => '2026-07-01',
+        ]);
+        $this->ledgerService->recordAccrual($this->staffEmployeeB, 'AL', 12.00, [
+            'accrual_year' => 2026,
+            'expires_at' => '2026-08-01',
+        ]);
+
+        $reqA = $this->leaveRequestService->submitRequest($this->staffEmployeeA, [
+            'leave_type_id' => $alType->id,
+            'start_date' => '2026-06-15',
+            'end_date' => '2026-06-16',
+            'reason' => 'Pengajuan A untuk verifikasi SSOT SPK SMART.',
+        ], null, $this->staffUserA);
+
+        $reqB = $this->leaveRequestService->submitRequest($this->staffEmployeeB, [
+            'leave_type_id' => $alType->id,
+            'start_date' => '2026-06-15',
+            'end_date' => '2026-06-16',
+            'reason' => 'Pengajuan B beririsan untuk verifikasi batch SSOT.',
+        ], null, $this->staffUserB);
+
+        $initialStoredScore = (float) $reqA->smart_score;
+
+        // Simulate operational drift after submission: add late attendance records for Staff A (changes C3 from 100% to 0%)
+        // and simulate stale DB value on reqA to prove index & modals use live SSOT rather than stale column.
+        Attendance::withoutGlobalScopes()->create([
+            'company_id' => $this->company->id,
+            'employee_id' => $this->staffEmployeeA->id,
+            'clock_in_at' => Carbon::create(2026, 5, 25, 9, 30, 0, 'Asia/Jakarta'),
+            'clock_out_at' => Carbon::create(2026, 5, 25, 17, 0, 0, 'Asia/Jakarta'),
+            'status' => 'late',
+            'late_minutes' => 90,
+        ]);
+
+        // 1. Direct SSOT call
+        $ssotMetrics = $this->smartService->calculateCandidateRealtimeMetrics($reqA->fresh());
+        $liveScore = (float) $ssotMetrics['smart_score'];
+        $this->assertLessThan($initialStoredScore, $liveScore);
+        $formattedLiveScore = number_format($liveScore, 2);
+
+        $superUser = User::factory()->create([
+            'company_id' => $this->company->id,
+            'name' => 'GM SSOT Verifier',
+            'username' => 'gm.ssot',
+            'email' => 'gm.ssot@novotelyia.com',
+            'role' => 'super_user',
+            'is_active' => true,
+        ]);
+
+        // 2. GET /leave renders the live SSOT score in the summary table (strictly read-only on GET)
+        $this->actingAs($superUser)
+            ->get(route('leave.index'))
+            ->assertOk()
+            ->assertSee($formattedLiveScore);
+
+        // 3. GET /leave/{reqA}/smart-analysis returns the exact same live smart_score and syncs DB
+        $analysisResponse = $this->actingAs($superUser)
+            ->getJson(route('leave.smartAnalysis', $reqA))
+            ->assertOk();
+        $this->assertEqualsWithDelta($liveScore, (float) $analysisResponse->json('smart_score'), 0.01);
+        $this->assertEqualsWithDelta($liveScore, (float) $reqA->fresh()->smart_score, 0.01);
+
+        // 4. POST /leave/smart-debug (Mode B) returns the exact same live smart_score for reqA
+        $debugResponse = $this->actingAs($superUser)
+            ->postJson(route('leave.smartDebug'), [
+                'weights' => ['C1' => 30, 'C2' => 20, 'C3' => 15, 'C4' => 15, 'C5' => 20],
+                'leave_request_id' => $reqA->id,
+                'candidates' => [],
+            ])
+            ->assertOk();
+        $this->assertEqualsWithDelta($liveScore, (float) $debugResponse->json('telemetry.weight_comparison.saved_score'), 0.01);
+
+        $reqAResult = collect($debugResponse->json('results'))
+            ->first(fn (array $item): bool => str_contains((string) ($item['name'] ?? ''), 'Rina Kusuma'));
+        $this->assertNotNull($reqAResult);
+        $this->assertEqualsWithDelta($liveScore, (float) $reqAResult['smart_score'], 0.01);
+
+        // 5. Batch recalculation across overlapping department requests updates both reqA and reqB consistently
+        $this->foDept->update(['min_staff_per_shift' => 4]);
+        $recalculatedCount = $this->smartService->recalculateOverlappingDepartmentRequests(
+            $this->staffEmployeeA,
+            '2026-06-15',
+            '2026-06-16'
+        );
+        $this->assertGreaterThanOrEqual(2, $recalculatedCount);
+
+        $freshSsotA = (float) $this->smartService->calculateCandidateRealtimeMetrics($reqA->fresh())['smart_score'];
+        $freshSsotB = (float) $this->smartService->calculateCandidateRealtimeMetrics($reqB->fresh())['smart_score'];
+        $this->assertEqualsWithDelta($freshSsotA, (float) $reqA->fresh()->smart_score, 0.01);
+        $this->assertEqualsWithDelta($freshSsotB, (float) $reqB->fresh()->smart_score, 0.01);
     }
 }

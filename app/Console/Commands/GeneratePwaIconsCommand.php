@@ -32,7 +32,7 @@ class GeneratePwaIconsCommand extends Command
         $sourceOption = $this->option('source');
         $candidates = array_filter([
             is_string($sourceOption) && $sourceOption !== '' ? $sourceOption : null,
-            storage_path('app/public/oatcake_logo_min.jpg'),
+            storage_path('app/public/oatcake_logo_min.png'),
             storage_path('app/public/oatcake_logo_full.jpg'),
         ]);
 
@@ -63,18 +63,20 @@ class GeneratePwaIconsCommand extends Command
             if ($sourcePath !== null) {
                 $base = $manager->decodePath($sourcePath);
             } else {
-                $base = $manager->createImage($size, $size)->fill('#0f172a');
+                $base = $manager->createImage($size, $size)->fill('#ffffff');
             }
 
             if ($target['maskable']) {
-                // Android adaptive icon safe-zone: keep logo within ~68% centered inside #090d16 canvas.
+                // Android adaptive icon safe-zone: keep logo within ~68% centered inside #ffffff canvas.
                 $innerSize = (int) round($size * 0.68);
                 $inner = $base->cover($innerSize, $innerSize, 'center');
-                $canvas = $manager->createImage($size, $size)->fill('#090d16');
+                $canvas = $manager->createImage($size, $size)->fill('#ffffff');
                 $canvas->insert($inner, alignment: 'center');
                 $outputImage = $canvas;
             } else {
-                $outputImage = $base->cover($size, $size, 'center');
+                $canvas = $manager->createImage($size, $size)->fill('#ffffff');
+                $canvas->insert($base->cover($size, $size, 'center'), alignment: 'center');
+                $outputImage = $canvas;
             }
 
             $binary = (string) $outputImage->encodeUsingFormat(Format::PNG);

@@ -19,7 +19,7 @@
         </div>
     </x-slot>
 
-    <div class="max-w-4xl mx-auto">
+    <div class="max-w-4xl mx-auto" x-data>
         <div class="rounded-2xl border border-line bg-surface p-6 sm:p-8 shadow-sm">
             <form method="POST" action="{{ route('staff.update', $employee) }}" class="space-y-8">
                 @csrf
@@ -88,19 +88,48 @@
                             @enderror
                         </div>
 
-                        <!-- Role Sistem -->
+                        <!-- Peran Sistem -->
                         <div class="w-full space-y-1.5">
-                            <label class="block text-xs font-medium text-ink" for="role">
-                                {{ __('staff.field_role') }} <span class="text-red-500">*</span>
-                            </label>
-                            <select id="role" name="role" required
-                                    class="w-full rounded-xl border border-line-strong bg-canvas text-ink text-sm px-3.5 py-2.5 focus:border-accent focus:ring-2 focus:ring-accent transition-all shadow-sm">
-                                @foreach ($allowedRoles as $roleOption)
-                                    <option value="{{ $roleOption }}" @selected(old('role', $employee->user?->role ?? 'user') === $roleOption)>
-                                        {{ strtoupper(str_replace('_', ' ', $roleOption)) }}
-                                    </option>
-                                @endforeach
-                            </select>
+                            <div class="flex items-center gap-1.5">
+                                <label class="block text-xs font-medium text-ink" for="role">
+                                    {{ __('staff.field_role') }} <span class="text-red-500">*</span>
+                                </label>
+                                <button type="button"
+                                        @click="$dispatch('open-modal', 'role-hierarchy-guide-modal')"
+                                        title="{{ __('staff.role_guide_button_label') }}"
+                                        aria-label="{{ __('staff.role_guide_button_label') }}"
+                                        class="inline-flex items-center justify-center w-4 h-4 rounded-full text-ink-muted hover:text-accent hover:bg-accent/10 transition-colors focus:outline-none focus:ring-2 focus:ring-accent cursor-pointer">
+                                    <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                        <circle cx="12" cy="12" r="10" />
+                                        <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" />
+                                        <path d="M12 17h.01" />
+                                    </svg>
+                                </button>
+                            </div>
+                            @php
+                                $roleOptions = collect($allowedRoles)->map(function (string $roleOption): array {
+                                    $roleOptKey = 'staff.role_' . $roleOption;
+                                    $roleOptLabel = __($roleOptKey) !== $roleOptKey
+                                        ? __($roleOptKey)
+                                        : strtoupper(str_replace('_', ' ', $roleOption));
+
+                                    return [
+                                        'id' => $roleOption,
+                                        'label' => $roleOptLabel,
+                                        'displayLabel' => $roleOptLabel,
+                                    ];
+                                })->values()->all();
+                            @endphp
+                            <x-ui.searchable-select
+                                name="role"
+                                id="role"
+                                :options="$roleOptions"
+                                :selected="old('role', $employee->user?->role ?? 'user')"
+                                :placeholder="__('staff.role_select_placeholder')"
+                                :searchPlaceholder="__('staff.role_search_placeholder')"
+                                :emptyText="__('staff.role_search_empty')"
+                                :nullable="false"
+                                :required="true" />
                             @error('role')
                                 <span class="text-xs text-red-600 mt-1 block">{{ $message }}</span>
                             @enderror
@@ -191,20 +220,14 @@
                             @enderror
                         </div>
 
-                        <!-- Atasan Langsung (Manager ID) -->
+                        <!-- Atasan Langsung (Manager ID - Searchable ComboBox) -->
                         <div class="w-full space-y-1.5">
                             <label class="block text-xs font-medium text-ink" for="manager_id">
                                 {{ __('staff.field_manager') }}
                             </label>
-                            <select id="manager_id" name="manager_id"
-                                    class="w-full rounded-xl border border-line-strong bg-canvas text-ink text-sm px-3.5 py-2.5 focus:border-accent focus:ring-2 focus:ring-accent transition-all shadow-sm">
-                                <option value="">{{ __('staff.field_manager_none') }}</option>
-                                @foreach ($managers as $mgr)
-                                    <option value="{{ $mgr->id }}" @selected((int) old('manager_id', $employee->manager_id) === (int) $mgr->id)>
-                                        {{ $mgr->user?->name }} ({{ $mgr->position }})
-                                    </option>
-                                @endforeach
-                            </select>
+                            <x-ui.manager-combobox
+                                :managers="$managers"
+                                :selected="old('manager_id', $employee->manager_id)" />
                             @error('manager_id')
                                 <span class="text-xs text-red-600 mt-1 block">{{ $message }}</span>
                             @enderror
@@ -246,8 +269,8 @@
                                 @php
                                     $tagDescKey = 'roster.tag_desc_' . strtolower($tag->code);
                                     $tagLabelKey = 'roster.tag_' . strtolower($tag->code);
-                                    $resolvedTagDesc = __($tagDescKey) !== $tagDescKey ? __($tagDescKey) : $tag->name;
-                                    $resolvedTagLabel = __($tagLabelKey) !== $tagLabelKey ? __($tagLabelKey) : $tag->code;
+                                    $resolvedTagLabel = __($tagLabelKey) !== $tagLabelKey ? __($tagLabelKey) : $tag->name;
+                                    $resolvedTagDesc = __($tagDescKey) !== $tagDescKey ? __($tagDescKey) : $tag->code;
                                 @endphp
                                 <label class="rounded-lg border border-line p-2.5 flex items-center gap-2 hover:bg-surface-muted cursor-pointer transition-colors">
                                     <input type="checkbox"
@@ -310,5 +333,7 @@
                 </div>
             </form>
         </div>
+
+        @include('staff.partials.role-hierarchy-modal', ['roleHierarchyGuide' => $roleHierarchyGuide])
     </div>
 </x-app-layout>

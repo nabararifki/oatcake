@@ -162,7 +162,7 @@ class CompanyBackupRestoreTest extends TestCase
 
         $adminA = User::factory()->create([
             'company_id' => $companyA->id,
-            'role' => 'admin',
+            'role' => 'admin_hr',
             'email' => 'admin.a@oatcake.test',
             'username' => 'admin_a',
         ]);

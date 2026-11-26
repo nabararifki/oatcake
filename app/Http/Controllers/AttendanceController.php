@@ -6,13 +6,16 @@ use App\Jobs\SendWebPushNotificationJob;
 use App\Models\Attendance;
 use App\Models\Company;
 use App\Models\Department;
+use App\Models\Employee;
 use App\Models\PublicHoliday;
+use App\Models\User;
 use App\Models\WorkSchedule;
 use App\Services\AttendanceGeofenceService;
 use App\Services\AttendancePhotoService;
 use App\Services\DpCommitService;
 use App\Services\WebPushService;
 use Carbon\Carbon;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -23,6 +26,7 @@ use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 use Illuminate\View\View;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 use Throwable;
 
 class AttendanceController extends Controller
@@ -41,12 +45,7 @@ class AttendanceController extends Controller
     {
         $user = $request->user();
         $employee = $user->employee?->load(['department', 'company']);
-
-        $company = $employee?->company
-            ?? $user->company
-            ?? ($user->isSuperAdmin() && session('active_company_id')
-                ? Company::find(session('active_company_id'))
-                : Company::first());
+        $company = $this->resolveAttendanceCompany($user, $employee);
 
         $nowWib = Carbon::now('Asia/Jakarta');
         $todayDate = $nowWib->toDateString();
@@ -58,7 +57,7 @@ class AttendanceController extends Controller
         $todayHoliday = PublicHoliday::findHolidayForDate($todayDate, $company?->id);
 
         $isAdminTier = $user->isSuperAdmin() || $user->isSuperUser() || $user->isAdmin();
-        $isManagerTier = $user->isManager();
+        $isManagerTier = $user->isSupervisorOrManager();
         $canFilterDepartment = $isAdminTier;
         $canSearchStaff = $isAdminTier || $isManagerTier;
         $showEmployeeColumn = $isAdminTier || $isManagerTier;
@@ -73,17 +72,166 @@ class AttendanceController extends Controller
             $departments = collect([$employee->department]);
         }
 
-        $query = Attendance::withoutGlobalScopes()
-            ->with([
-                'employee' => fn ($q) => $q->withoutGlobalScopes()->with([
-                    'user',
-                    'department' => fn ($dq) => $dq->withoutGlobalScopes(),
-                ]),
-                'workSchedule' => fn ($wq) => $wq->withoutGlobalScopes()->with([
-                    'shift' => fn ($sq) => $sq->withoutGlobalScopes(),
-                ]),
-                'verifier',
+        $query = $this->buildScopedAttendanceQuery($request, $user, $employee, $company, true);
+
+        $filterDateFrom = (string) $request->input('date_from', $request->input('start_date', $nowWib->copy()->subDays(30)->toDateString()));
+        $filterDateTo = (string) $request->input('date_to', $request->input('end_date', $todayDate));
+        $filterStatus = (string) $request->input('status', 'all');
+        $filterSearch = trim((string) $request->input('search', ''));
+
+        $attendances = $query
+            ->orderByDesc('clock_in_at')
+            ->paginate(25)
+            ->withQueryString();
+
+        return view('attendance.index', [
+            'currentCompany' => $company,
+            'employee' => $employee,
+            'todaySchedule' => $todaySchedule,
+            'todayHoliday' => $todayHoliday,
+            'attendances' => $attendances,
+            'recentAttendances' => $attendances,
+            'departments' => $departments,
+            'canFilterDepartment' => $canFilterDepartment,
+            'canSearchStaff' => $canSearchStaff,
+            'showEmployeeColumn' => $showEmployeeColumn,
+            'canManageAttendance' => $user->isAdminOrAbove(),
+            'isManagerTier' => $isManagerTier,
+            'filterDateFrom' => $filterDateFrom,
+            'filterDateTo' => $filterDateTo,
+            'filterDepartmentId' => $canFilterDepartment ? $request->input('department_id', '') : ($employee?->department_id ?? ''),
+            'filterStatus' => $filterStatus,
+            'filterSearch' => $filterSearch,
+        ]);
+    }
+
+    /**
+     * Stream filtered attendance records as a payroll-ready CSV with O(1) memory usage.
+     */
+    public function export(Request $request): StreamedResponse
+    {
+        $user = $request->user();
+        abort_unless($user !== null, 403);
+
+        $employee = $user->employee?->load(['department', 'company']);
+        $company = $this->resolveAttendanceCompany($user, $employee);
+        $timezone = $company?->timezone ?: 'Asia/Jakarta';
+
+        $query = $this->buildScopedAttendanceQuery($request, $user, $employee, $company, false)
+            ->orderByDesc('clock_in_at')
+            ->orderByDesc('id');
+
+        $filename = 'attendance-' . Carbon::now($timezone)->format('Y-m-d_His') . '.csv';
+
+        return new StreamedResponse(function () use ($query, $timezone): void {
+            $handle = fopen('php://output', 'w');
+            if ($handle === false) {
+                return;
+            }
+
+            // Emit UTF-8 BOM so Excel and external payroll tools render Indonesian characters properly.
+            fwrite($handle, "\xEF\xBB\xBF");
+
+            fputcsv($handle, [
+                __('attendance.csv_header_payroll_code'),
+                __('attendance.csv_header_full_name'),
+                __('attendance.csv_header_department'),
+                __('attendance.csv_header_attendance_date'),
+                __('attendance.csv_header_shift_code'),
+                __('attendance.csv_header_clock_in'),
+                __('attendance.csv_header_clock_out'),
+                __('attendance.csv_header_late_minutes'),
+                __('attendance.csv_header_early_leave_minutes'),
+                __('attendance.csv_header_status'),
             ]);
+
+            $query->chunk(500, function ($attendances) use ($handle, $timezone): void {
+                foreach ($attendances as $attendance) {
+                    $emp = $attendance->employee;
+                    $payrollCode = (string) ($emp?->getAttribute('payroll_code') ?: ($emp?->id ?? $attendance->employee_id ?? ''));
+                    $fullName = (string) ($emp?->user?->name ?? '-');
+                    $department = (string) ($emp?->department?->name ?? '-');
+
+                    $clockInLocal = $attendance->clock_in_at?->copy()->timezone($timezone);
+                    $clockOutLocal = $attendance->clock_out_at?->copy()->timezone($timezone);
+
+                    $attendanceDate = $clockInLocal?->toDateString()
+                        ?? ($attendance->workSchedule?->schedule_date?->toDateString() ?? '-');
+                    $shiftCode = (string) ($attendance->workSchedule?->shift?->code ?? '-');
+                    $clockInTime = $clockInLocal?->format('H:i:s') ?? '-';
+                    $clockOutTime = $clockOutLocal?->format('H:i:s') ?? '-';
+
+                    $statusKey = 'attendance.status_' . $attendance->status;
+                    $statusLabel = __($statusKey) !== $statusKey ? __($statusKey) : (string) $attendance->status;
+
+                    fputcsv($handle, [
+                        $payrollCode,
+                        $fullName,
+                        $department,
+                        $attendanceDate,
+                        $shiftCode,
+                        $clockInTime,
+                        $clockOutTime,
+                        (int) ($attendance->late_minutes ?? 0),
+                        (int) ($attendance->early_leave_minutes ?? 0),
+                        $statusLabel,
+                    ]);
+                }
+
+                if (ob_get_level() === 0) {
+                    flush();
+                }
+            });
+
+            fclose($handle);
+        }, 200, [
+            'Content-Type' => 'text/csv; charset=UTF-8',
+            'Content-Disposition' => 'attachment; filename="' . $filename . '"',
+            'Cache-Control' => 'no-store, no-cache',
+        ]);
+    }
+
+    /**
+     * Resolve the active company context for attendance viewing and exports.
+     */
+    private function resolveAttendanceCompany(User $user, ?Employee $employee): ?Company
+    {
+        return $employee?->company
+            ?? $user->company
+            ?? ($user->isSuperAdmin() && session('active_company_id')
+                ? Company::find(session('active_company_id'))
+                : Company::first());
+    }
+
+    /**
+     * Build the RBAC-scoped and filter-aware attendance query shared by UI index and CSV export.
+     */
+    private function buildScopedAttendanceQuery(
+        Request $request,
+        User $user,
+        ?Employee $employee,
+        ?Company $company,
+        bool $includeVerifier = true
+    ): Builder {
+        $isAdminTier = $user->isSuperAdmin() || $user->isSuperUser() || $user->isAdmin();
+        $isManagerTier = $user->isSupervisorOrManager();
+        $canSearchStaff = $isAdminTier || $isManagerTier;
+
+        $relations = [
+            'employee' => fn ($q) => $q->withoutGlobalScopes()->with([
+                'user',
+                'department' => fn ($dq) => $dq->withoutGlobalScopes(),
+            ]),
+            'workSchedule' => fn ($wq) => $wq->withoutGlobalScopes()->with([
+                'shift' => fn ($sq) => $sq->withoutGlobalScopes()->withTrashed(),
+            ]),
+        ];
+
+        if ($includeVerifier) {
+            $relations[] = 'verifier';
+        }
+
+        $query = Attendance::withoutGlobalScopes()->with($relations);
 
         // Hierarchical RBAC Scoping
         if ($isAdminTier) {
@@ -106,16 +254,16 @@ class AttendanceController extends Controller
             $query->whereRaw('1 = 0');
         }
 
-        // Date Range Filter
-        $filterDateFrom = (string) $request->input('date_from', $nowWib->copy()->subDays(30)->toDateString());
-        $filterDateTo = (string) $request->input('date_to', $todayDate);
+        // Date Range Filter (supports UI date_from/date_to and start_date/end_date aliases)
+        $dateFrom = trim((string) $request->input('date_from', $request->input('start_date', '')));
+        $dateTo = trim((string) $request->input('date_to', $request->input('end_date', '')));
 
-        if ($request->filled('date_from')) {
-            $query->whereDate('clock_in_at', '>=', (string) $request->input('date_from'));
+        if ($dateFrom !== '') {
+            $query->whereDate('clock_in_at', '>=', $dateFrom);
         }
 
-        if ($request->filled('date_to')) {
-            $query->whereDate('clock_in_at', '<=', (string) $request->input('date_to'));
+        if ($dateTo !== '') {
+            $query->whereDate('clock_in_at', '<=', $dateTo);
         }
 
         // Status Filter
@@ -142,30 +290,7 @@ class AttendanceController extends Controller
             });
         }
 
-        $attendances = $query
-            ->orderByDesc('clock_in_at')
-            ->paginate(25)
-            ->withQueryString();
-
-        return view('attendance.index', [
-            'currentCompany' => $company,
-            'employee' => $employee,
-            'todaySchedule' => $todaySchedule,
-            'todayHoliday' => $todayHoliday,
-            'attendances' => $attendances,
-            'recentAttendances' => $attendances,
-            'departments' => $departments,
-            'canFilterDepartment' => $canFilterDepartment,
-            'canSearchStaff' => $canSearchStaff,
-            'showEmployeeColumn' => $showEmployeeColumn,
-            'canManageAttendance' => $user->isAdminOrAbove(),
-            'isManagerTier' => $isManagerTier,
-            'filterDateFrom' => $filterDateFrom,
-            'filterDateTo' => $filterDateTo,
-            'filterDepartmentId' => $canFilterDepartment ? $request->input('department_id', '') : ($employee?->department_id ?? ''),
-            'filterStatus' => $filterStatus,
-            'filterSearch' => $filterSearch,
-        ]);
+        return $query;
     }
 
     /**
